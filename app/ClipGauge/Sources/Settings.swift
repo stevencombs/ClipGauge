@@ -693,6 +693,16 @@ struct SettingsView: View {
     @ObservedObject var hotKeys: HotKeyCenter = .shared
     /// false when rendering previews: lays everything out at full height instead of scrolling.
     var scrollable = true
+    /// Fixed window height (previews use a short one to prove the page scrolls). nil = fit the screen.
+    var heightOverride: CGFloat? = nil
+    /// Preview only: start scrolled to the bottom.
+    var startAtBottom = false
+
+    /// GrokGauge's 680 pt window, capped to the screen the window opens on (minus the title bar and some air).
+    static var fittedHeight: CGFloat {
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 800
+        return max(360, min(680, visible - 60))
+    }
     var ollamaOverride: String? = nil
     var openSetup: () -> Void = {}
 
@@ -703,10 +713,15 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             tabBar
             Divider()
-            if scrollable { ScrollView { page.padding(20) } } else { page.padding(20) }
+            if scrollable {
+                // A fixed-height window with the page in a ScrollView (as in GrokGauge), so a long tab scrolls
+                // instead of growing the window past the screen.
+                ScrollView { page.padding(20) }
+                    .defaultScrollAnchor(startAtBottom ? .bottom : .top)
+            } else { page.padding(20) }
         }
         .frame(width: 600)
-        .frame(minHeight: scrollable ? 640 : nil, alignment: .top)
+        .frame(height: scrollable ? (heightOverride ?? SettingsView.fittedHeight) : nil, alignment: .top)
     }
 
     private var tabBar: some View {

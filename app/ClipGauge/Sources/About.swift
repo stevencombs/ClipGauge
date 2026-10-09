@@ -67,30 +67,28 @@ struct AboutTab: View {
                     Button("Diagnostics…", action: showDiagnostics)
                 }
             }
-            PrefGroup(title: "This Mac") {
+            PrefGroup(title: "This Mac",
+                      footer: "Runs entirely on this Mac: frames, audio, transcripts and chats go to local models (Ollama, whisper.cpp) and are never uploaded. Network use is limited to update checks and downloads you approve.") {
                 PrefRow(label: "Project folder", detail: model.root?.path ?? Project.missingTitle) {
                     if let r = model.root { Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([r]) } }
                     Button("Setup…", action: openSetup)
                 }
                 Divider()
-                PrefRow(label: "Engine", detail: "Runs the renamer scripts directly (scripts/clipgauge_cli.py) — no web server") {
+                PrefRow(label: "Engine & privacy", detail: "scripts/clipgauge_cli.py · network: 127.0.0.1 only (local Ollama)") {
+                    Image(systemName: "lock.shield").foregroundStyle(Level.normal.color)
                     Button("Open \(kAppName)") { model.showMain() }.disabled(!model.lexarOK)
                 }
             }
-            PrefGroup(title: "Privacy",
-                      footer: "\(kAppName) and the renamer run entirely on this Mac. Frames, audio, transcripts and Ask the Model chats are processed by local models (Ollama, whisper.cpp) and never uploaded. Network use: checking for and downloading tools and models, which you approve. Settings sync (off until you choose a folder) writes only a small preferences file into that folder.") {
-                PrefRow(label: "Network access", detail: "127.0.0.1 only (local Ollama)") {
-                    Image(systemName: "lock.shield").foregroundStyle(Level.normal.color)
+            PrefGroup(title: "Built with",
+                      footer: "Ollama (MIT) · Qwen2.5-VL (7B Apache 2.0, 3B Qwen Research License) · whisper.cpp + Whisper models (MIT) · FFmpeg (LGPL/GPL)") {
+                HStack(spacing: 14) {
+                    creditLink("Ollama", "https://ollama.com")
+                    creditLink("Qwen2.5-VL", "https://ollama.com/library/qwen2.5vl")
+                    creditLink("whisper.cpp", "https://github.com/ggml-org/whisper.cpp")
+                    creditLink("FFmpeg", "https://ffmpeg.org")
+                    Spacer(minLength: 0)
                 }
-            }
-            PrefGroup(title: "Built with") {
-                credit("Ollama", "Local model runner · MIT", "https://ollama.com")
-                Divider()
-                credit("Qwen2.5-VL", "Vision model by Alibaba Qwen · 7B: Apache 2.0 (3B: Qwen Research License)", "https://ollama.com/library/qwen2.5vl")
-                Divider()
-                credit("whisper.cpp + Whisper models", "Speech to text · MIT", "https://github.com/ggml-org/whisper.cpp")
-                Divider()
-                credit("FFmpeg", "Frame and audio extraction · LGPL/GPL", "https://ffmpeg.org")
+                .padding(.vertical, 6)
             }
             HStack {
                 Text("© 2026 Steven Combs (retroCombs). Unofficial; not affiliated with the model makers.")
@@ -112,10 +110,8 @@ struct AboutTab: View {
         return "Last checked \(d.formatted(date: .abbreviated, time: .shortened))"
     }
 
-    private func credit(_ name: String, _ detail: String, _ url: String) -> some View {
-        PrefRow(label: name, detail: detail) {
-            if let u = URL(string: url) { Link(u.host ?? url, destination: u).font(.caption) }
-        }
+    private func creditLink(_ name: String, _ url: String) -> some View {
+        Link(name, destination: URL(string: url)!).font(.callout).help(url)
     }
 }
 
@@ -123,13 +119,21 @@ struct AboutTab: View {
 struct AboutView: View {
     @ObservedObject var model: RenamerModel
     var openSetup: () -> Void = {}
+    /// false = full height (previews); true = a screen-capped window whose content scrolls.
+    var scrollable = true
+    var heightOverride: CGFloat? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let content = VStack(alignment: .leading, spacing: 16) {
             AboutTab(model: model, store: LayoutStore.shared, updates: AppUpdateMonitor.shared, openSetup: openSetup)
         }
         .padding(20)
-        .frame(width: 560)
+        if scrollable {
+            ScrollView { content }
+                .frame(width: 560, height: heightOverride ?? SettingsView.fittedHeight, alignment: .top)
+        } else {
+            content.frame(width: 560)
+        }
     }
 }
 
@@ -253,10 +257,21 @@ final class HostedWindow: NSObject, NSWindowDelegate {
             w.delegate = self
             w.center()
             w.setFrameAutosaveName(autosave)
+            HostedWindow.fitToScreen(w)
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Keeps a window (including one restored from an autosaved frame) inside the visible screen area.
+    static func fitToScreen(_ w: NSWindow) {
+        guard let visible = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var f = w.frame
+        if f.height > visible.height { f.origin.y = visible.minY; f.size.height = visible.height }
+        if f.maxY > visible.maxY { f.origin.y = visible.maxY - f.height }
+        if f.minY < visible.minY { f.origin.y = visible.minY }
+        if f != w.frame { w.setFrame(f, display: false) }
     }
 
     func windowWillClose(_ notification: Notification) {

@@ -557,8 +557,8 @@ enum CLI {
             ok = renderView(PopoverView(model: m), scheme: scheme, to: dir.appendingPathComponent("popover-\(name).png")) && ok
         }
         ok = renderMenuBar(m, to: dir.appendingPathComponent("menubar.png")) && ok
-        ok = renderView(AboutView(model: m), scheme: .dark, to: dir.appendingPathComponent("about-dark.png")) && ok
-        ok = renderView(AboutView(model: m), scheme: .light, to: dir.appendingPathComponent("about-light.png")) && ok
+        ok = renderView(AboutView(model: m, scrollable: false), scheme: .dark, to: dir.appendingPathComponent("about-dark.png")) && ok
+        ok = renderView(AboutView(model: m, scrollable: false), scheme: .light, to: dir.appendingPathComponent("about-light.png")) && ok
         let sm = SetupModel(renamer: m)
         sm.items = SetupModel.runChecks(root: m.root)
         sm.lastChecked = Date()
@@ -696,7 +696,7 @@ enum CLI {
         for scheme in [ColorScheme.dark, .light] {
             let name = scheme == .dark ? "dark" : "light"
             ok = renderView(PopoverView(model: m), scheme: scheme, to: dir.appendingPathComponent("v06-popover-\(name).png")) && ok
-            ok = renderView(AboutView(model: m), scheme: scheme, to: dir.appendingPathComponent("v06-about-\(name).png")) && ok
+            ok = renderView(AboutView(model: m, scrollable: false), scheme: scheme, to: dir.appendingPathComponent("v06-about-\(name).png")) && ok
         }
         return ok
     }
@@ -773,7 +773,7 @@ enum CLI {
         ok = renderView(SettingsView(store: on, model: m, nav: SettingsNav(.sync), scrollable: false), scheme: .dark,
                         to: dir.appendingPathComponent("v07-sync-status-example-dark.png")) && ok
         // About on its own
-        ok = renderView(AboutView(model: m), scheme: .dark, to: dir.appendingPathComponent("v07-about-dark.png")) && ok
+        ok = renderView(AboutView(model: m, scrollable: false), scheme: .dark, to: dir.appendingPathComponent("v07-about-dark.png")) && ok
         // Popover with the colorblind-friendly palette during an example run (mocked state; nothing runs)
         let ex = RenamerModel(preview: true)
         settle(ex)
@@ -800,7 +800,16 @@ enum CLI {
 
     /// v0.7.2: About (PayPal button), the popover footer and the app menu, both with "Support ClipGauge…".
     static func renderV072(_ m: RenamerModel, dir: URL) -> Bool {
-        var ok = renderView(AboutView(model: m), scheme: .dark, to: dir.appendingPathComponent("v072-about-dark.png"))
+        var ok = renderView(AboutView(model: m, scrollable: false), scheme: .dark, to: dir.appendingPathComponent("v072-about-dark.png"))
+        // v0.7.3: Settings › About in a short (420 pt) window, top and scrolled to the bottom: the page scrolls.
+        for (bottom, name) in [(false, "top"), (true, "bottom")] {
+            ok = renderView(SettingsView(store: LayoutStore.shared, model: m, nav: SettingsNav(.about), heightOverride: 420, startAtBottom: bottom),
+                            scheme: .dark, to: dir.appendingPathComponent("v073-about-short-\(name)-dark.png")) && ok
+        }
+        for tab in SettingsTab.allCases where tab != .about {
+            ok = renderView(SettingsView(store: LayoutStore.shared, model: m, nav: SettingsNav(tab), heightOverride: 420, startAtBottom: true),
+                            scheme: .dark, to: dir.appendingPathComponent("v073-\(tab.rawValue)-short-bottom-dark.png")) && ok
+        }
         ok = renderView(PopoverView(model: m), scheme: .dark, to: dir.appendingPathComponent("v072-popover-dark.png")) && ok
         // The real app menu, read back from the NSMenu MainMenu installs, drawn as a menu-style list.
         let menuTarget = NSObject()
