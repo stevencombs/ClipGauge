@@ -9,8 +9,8 @@
 	<key>CFBundleName</key><string>ClipGauge</string>
 	<key>CFBundleDisplayName</key><string>ClipGauge</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>0.7.3</string>
-	<key>CFBundleVersion</key><string>11</string>
+	<key>CFBundleShortVersionString</key><string>0.7.4</string>
+	<key>CFBundleVersion</key><string>12</string>
 	<key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>LSUIElement</key><true/>
 	<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>

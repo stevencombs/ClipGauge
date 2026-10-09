@@ -101,15 +101,54 @@ final class MainModel: ObservableObject {
 
     func recheck() {
         guard let r = renamer, !queue.isEmpty else { return }
-        r.engine(["check-path"] + queue.map { $0.url.path }) { j in
+        let paths = queue.map { $0.url.path }
+        r.engine(["check-path"] + paths) { j in
             let items = (j["items"] as? [[String: Any]]) ?? []
-            for (i, it) in items.enumerated() where i < self.queue.count { self.queue[i].check = it }
+            // Match answers by the path that was asked (the queue may have changed meanwhile). Anything the
+            // engine didn't answer becomes an explicit error row, never an endless spinner.
+            var byPath: [String: [String: Any]] = [:]
+            for (p, it) in zip(paths, items) { byPath[p] = it }
+            let why = (j["error"] as? String) ?? RenamerModel.errorText(j)
+            for i in self.queue.indices where paths.contains(self.queue[i].url.path) {
+                let p = self.queue[i].url.path
+                self.queue[i].check = byPath[p]
+                    ?? ["status": "error", "reason": why.isEmpty ? "Couldn't check this item" : why, "copy_ok": false]
+            }
             if let e = j["error"] as? String { self.lastMessage = e }
         }
     }
 
     func remove(_ item: QueuedItem) { queue.removeAll { $0.id == item.id } }
     func clear() { queue.removeAll(); lastMessage = nil }
+    /// Clear plus the batch options (folder name, project-from-folder, dry run).
+    func startOver() {
+        guard !copying else { return }
+        queue.removeAll(); lastMessage = nil
+        folderName = ""; folderAsProject = false; dryRunOnly = false
+    }
+    /// Refused and error items are never kept: dropped when the window closes or reopens.
+    /// (The queue lives only in memory, so nothing is restored after a relaunch.)
+    func pruneInvalid() {
+        guard !copying, !exampleData else { return }
+        queue.removeAll { $0.status == "refused" || $0.status == "error" }
+    }
+
+    /// The held folder named in an "on hold" refusal (“Held Project” …), or nil.
+    static func heldName(_ item: QueuedItem) -> String? {
+        guard item.status == "refused", item.reason.contains("on hold") else { return nil }
+        let r = item.reason
+        if let a = r.firstIndex(of: "“"), let b = r[a...].firstIndex(of: "”") { return String(r[r.index(after: a)..<b]) }
+        return item.url.lastPathComponent
+    }
+    /// Held items collapse into ONE summary row per held folder, however many clips were dropped.
+    var heldGroups: [(name: String, count: Int)] {
+        var order: [String] = [], counts: [String: Int] = [:]
+        for it in queue { if let n = MainModel.heldName(it) { if counts[n] == nil { order.append(n) }; counts[n, default: 0] += 1 } }
+        return order.map { ($0, counts[$0]!) }
+    }
+    var listedItems: [QueuedItem] { queue.filter { MainModel.heldName($0) == nil } }
+    func removeHeld(_ name: String) { queue.removeAll { MainModel.heldName($0) == name } }
+    var isChecking: Bool { queue.contains { $0.status == "checking" } }
 
     func choose() {
         let p = NSOpenPanel()
@@ -331,7 +370,7 @@ struct MainView: View {
             .frame(maxWidth: 560)
             Group {
                 switch main.tab {
-                case .add: AddClipsView(main: main, model: model)
+                case .add: AddClipsView(main: main, model: model, scrolls: scrolls)
                 case .results: ResultsView(main: main, model: model, scrolls: scrolls)
                 case .tools: ToolsView(main: main, model: model)
                 }
@@ -355,7 +394,11 @@ struct MainView: View {
             loadURLs(providers) { main.add($0) }
             return true
         }
-        .onAppear { if main.tab == .results { main.loadResults() } }
+        .onAppear {
+            main.pruneInvalid()
+            if main.tab == .results { main.loadResults() }
+        }
+        .onDisappear { main.pruneInvalid() }
         .onChange(of: main.tab) { t in
             if t == .results { main.loadResults() }
             if t == .tools { main.loadScopes(); model.refreshInbox(force: true) }
@@ -436,56 +479,86 @@ private struct RunBar: View {
 private struct AddClipsView: View {
     @ObservedObject var main: MainModel
     @ObservedObject var model: RenamerModel
+    var scrolls = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
+            header
             if main.queue.isEmpty {
                 DropZone(main: main)
             } else {
-                HStack {
-                    Text("\(main.queue.count) item(s) · \(main.clipCount) clip(s) to \(main.mode == .copy ? "copy" : "process")").font(.headline)
-                    if main.exampleData {
-                        Text("EXAMPLE DATA").font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.25), in: Capsule())
-                    }
-                    Spacer()
-                    Button("Choose…") { main.choose() }
-                    Button("Clear") { main.clear() }.disabled(main.copying)
-                }
-                VStack(spacing: 0) {
-                    ForEach(main.queue) { item in
-                        QueueRow(item: item, mode: main.mode) { main.remove(item) }
-                        Divider()
+                // Only the list scrolls; the header (Clear / Start over) and the controls below stay put.
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(main.heldGroups, id: \.name) { g in
+                            HeldSummaryRow(name: g.name, count: g.count) { main.removeHeld(g.name) }
+                            Divider()
+                        }
+                        ForEach(main.listedItems) { item in
+                            QueueRow(item: item, mode: main.mode) { main.remove(item) }
+                            Divider()
+                        }
                     }
                 }
+                .frame(minHeight: 90, maxHeight: scrolls ? .infinity : 240)
                 .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 10))
+                .layoutPriority(1)
             }
-            Picker("Mode", selection: $main.mode) {
-                ForEach(AddMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.radioGroup)
-            .horizontalRadioGroupLayout()
-            if main.mode == .copy {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Clips are copied to inbox/ (originals untouched, nothing overwritten — same name and size is skipped, otherwise _2, _3 …). Renamed clips can go into a folder:")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        TextField("Folder name (optional), e.g. Retro Game Expo", text: $main.folderName).frame(maxWidth: 360)
-                        Toggle("Use folder name as the project in filenames", isOn: $main.folderAsProject)
-                            .disabled(main.folderName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    Toggle("Start processing when the copy finishes", isOn: $main.startAfterCopy)
-                }
+            controls
+        }
+        .padding(20)
+    }
+
+    private var header: some View {
+        HStack {
+            if main.queue.isEmpty {
+                Text("No clips added").font(.headline).foregroundStyle(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Clips are renamed where they are — no copy. Folders on hold (Held Project, Archive Footage, Old Card Dump), DaVinci Resolve's own folders and Cloud-synced projects are refused. Inside the DaVinci Resolve folder you'll be asked first: renaming media Resolve already imported breaks its links.")
-                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    if main.needsConfirm {
-                        Label("Some clips are inside the DaVinci Resolve folder — you'll be asked to confirm.", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(.orange)
+                Text("\(main.queue.count) item(s) · \(main.clipCount) clip(s) to \(main.mode == .copy ? "copy" : "process")").font(.headline)
+            }
+            if main.exampleData {
+                Text("EXAMPLE DATA").font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.orange.opacity(0.25), in: Capsule())
+            }
+            Spacer()
+            Button("Choose…") { main.choose() }
+            Button("Clear") { main.clear() }
+                .disabled(main.copying || main.queue.isEmpty)
+                .help("Remove every item from the list")
+            Button("Start Over") { main.startOver() }
+                .disabled(main.copying)
+                .help("Clear the list and reset the folder name and options")
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+                Picker("Mode", selection: $main.mode) {
+                    ForEach(AddMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+                .horizontalRadioGroupLayout()
+                if main.mode == .copy {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Clips are copied to inbox/ (originals untouched, nothing overwritten — same name and size is skipped, otherwise _2, _3 …). Renamed clips can go into a folder:")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            TextField("Folder name (optional), e.g. Retro Game Expo", text: $main.folderName).frame(maxWidth: 360)
+                            Toggle("Use folder name as the project in filenames", isOn: $main.folderAsProject)
+                                .disabled(main.folderName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                        Toggle("Start processing when the copy finishes", isOn: $main.startAfterCopy)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Clips are renamed where they are — no copy. Folders on hold (hold_sources in config/project-sort.json), DaVinci Resolve's own folders and Cloud-synced projects are refused. Inside the DaVinci Resolve folder you'll be asked first: renaming media Resolve already imported breaks its links.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        if main.needsConfirm {
+                            Label("Some clips are inside the DaVinci Resolve folder — you'll be asked to confirm.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
                     }
                 }
-            }
             if main.copying {
                 VStack(alignment: .leading, spacing: 4) {
                     ProgressView(value: main.copyFraction)
@@ -496,7 +569,12 @@ private struct AddClipsView: View {
                     }
                 }
             }
-            HStack {
+            HStack(spacing: 12) {
+                if let s = status {
+                    Label(s.text, systemImage: s.icon)
+                        .font(.callout).foregroundStyle(s.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer()
                 Button {
                     main.go()
@@ -507,11 +585,58 @@ private struct AddClipsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(main.usable.isEmpty || main.copying || !model.lexarOK
-                          || (main.mode == .inPlace && model.startBlocker != nil))
+                .disabled(blocked)
+                .help(status?.text ?? "")
             }
         }
-        .padding(20)
+    }
+
+    private var blocked: Bool {
+        main.usable.isEmpty || main.copying || !model.lexarOK || main.isChecking
+            || (main.mode == .inPlace && model.startBlocker != nil)
+    }
+
+    /// Why the button is (or isn't) available — never a silently disabled button.
+    private var status: (text: String, icon: String, color: Color)? {
+        if main.copying { return nil }
+        if !model.lexarOK { return ("The project folder isn't available. Connect the drive or choose it in Setup.", "externaldrive.badge.xmark", .orange) }
+        if main.queue.isEmpty { return ("Add clips or folders to start.", "info.circle", .secondary) }
+        if main.isChecking {
+            let n = main.queue.filter { $0.status == "checking" }.count
+            return ("Checking \(n) item(s)…", "hourglass", .secondary)
+        }
+        if main.usable.isEmpty {
+            let held = main.heldGroups.map { "“\($0.name)”" }
+            if !held.isEmpty && main.listedItems.isEmpty {
+                return ("Nothing to process: \(held.joined(separator: ", ")) \(held.count == 1 ? "is" : "are") on hold. Remove it from the list, or choose another folder.", "hand.raised.fill", .red)
+            }
+            return ("Nothing to \(main.mode == .copy ? "copy" : "process"): every item was refused or has no clips. Remove them or choose others.", "exclamationmark.triangle.fill", .orange)
+        }
+        if main.mode == .inPlace, let b = model.startBlocker { return (b, "exclamationmark.triangle.fill", .orange) }
+        return ("Ready: \(main.clipCount) clip(s).", "checkmark.circle.fill", .green)
+    }
+}
+
+/// One row for everything dropped from a held folder (instead of one red row per clip).
+private struct HeldSummaryRow: View {
+    let name: String
+    let count: Int
+    let remove: () -> Void
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.raised.fill").foregroundStyle(.red).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("“\(name)” is on hold — remove it from hold in Settings or config to process")
+                    .font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                Text("\(count) item(s) skipped · hold_sources in config/project-sort.json · nothing was touched")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                .buttonStyle(.borderless).help("Remove from the list")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color.red.opacity(0.08))
     }
 }
 
@@ -551,10 +676,12 @@ private struct QueueRow: View {
     @ViewBuilder private var verdict: some View {
         if item.status == "checking" {
             ProgressView().controlSize(.small)
+        } else if item.status == "error" {
+            tag(item.reason, .red).help(item.reason)
         } else if mode == .copy {
             if !item.copyOK { tag("on hold — not copied", .orange) }
             else { tag("\(item.copyCount) clip(s)" + (item.bytes > 0 ? " · \(byteString(item.bytes))" : ""), .secondary) }
-        } else if item.status == "refused" {
+        } else if item.status == "refused" || item.status == "error" {
             tag(item.reason, .red).help(item.reason)
         } else if item.needsConfirm {
             tag("\(item.mediaCount) clip(s) · DaVinci Resolve — asks first", .orange).help(item.reason)

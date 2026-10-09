@@ -1,7 +1,7 @@
 // ClipGauge — the all-in-one menu bar app for AI-Video-Renamer (v0.6; was "ClipGuage" ≤ v0.5). Styled after GrokGauge.
 //   ClipGauge.app                      menu bar app (LSUIElement) + main window + Ask the Model chat
 //   .../MacOS/ClipGauge --print-state  one poll, print the derived state (for scripts / debugging)
-//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072]   write the preview PNGs offscreen
+//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074]   write the preview PNGs offscreen
 //   .../MacOS/ClipGauge --sync-selftest                          settings-sync checks in a temporary folder
 import AppKit
 import Combine
@@ -536,6 +536,11 @@ enum CLI {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let m = RenamerModel(preview: true)
         settle(m)
+        if CommandLine.arguments.contains("--only-v074") {
+            let ok = renderV074(m, dir: dir)
+            print(ok ? "Wrote v0.7.4 previews to \(dir.path)" : "Some previews failed")
+            return ok ? 0 : 1
+        }
         if CommandLine.arguments.contains("--only-v072") {
             let ok = renderV072(m, dir: dir)
             print(ok ? "Wrote v0.7.2 previews to \(dir.path)" : "Some previews failed")
@@ -799,6 +804,29 @@ enum CLI {
     }
 
     /// v0.7.2: About (PayPal button), the popover footer and the app menu, both with "Support ClipGauge…".
+    /// v0.7.4: dozens of clips dropped from a held folder → one summary row, scrolling list, pinned controls, status.
+    static func renderV074(_ m: RenamerModel, dir: URL) -> Bool {
+        let ex = MainModel(renamer: m)
+        ex.exampleData = true
+        ex.mode = .inPlace
+        let held = "/Volumes/Lexar/DaVinci Resolve/Held Project"
+        let reason = "“Held Project” is on hold (hold_sources in config/project-sort.json) — not touching it"
+        func q(_ path: String, _ c: [String: Any]) -> QueuedItem { var i = QueuedItem(url: URL(fileURLWithPath: path)); i.check = c; return i }
+        ex.queue = [q(held, ["status": "refused", "reason": reason, "copy_ok": false])]
+            + (1...36).map { q(held + String(format: "/CLIP_%04d.MP4", $0), ["status": "refused", "reason": reason, "copy_ok": false]) }
+        var ok = renderView(MainView(main: ex, model: m).frame(width: 980, height: 620), scheme: .dark,
+                            to: dir.appendingPathComponent("v074-add-held-dark.png"))
+        // Held items next to real ones: the summary row on top, the rest listed and scrollable.
+        let mix = MainModel(renamer: m)
+        mix.exampleData = true
+        mix.mode = .inPlace
+        mix.queue = ex.queue + (1...14).map { q(String(format: "/Volumes/SD-CARD/DCIM/100MEDIA/CLIP_%04d.MP4", $0),
+                                                  ["status": "ok", "media_count": 1, "copy_count": 1, "copy_ok": true]) }
+        ok = renderView(MainView(main: mix, model: m).frame(width: 980, height: 620), scheme: .dark,
+                        to: dir.appendingPathComponent("v074-add-mixed-dark.png")) && ok
+        return ok
+    }
+
     static func renderV072(_ m: RenamerModel, dir: URL) -> Bool {
         var ok = renderView(AboutView(model: m, scrollable: false), scheme: .dark, to: dir.appendingPathComponent("v072-about-dark.png"))
         // v0.7.3: Settings › About in a short (420 pt) window, top and scrolled to the bottom: the page scrolls.
