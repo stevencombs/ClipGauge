@@ -1,0 +1,77 @@
+{
+  "_comment": "ClipGauge › Sort into Projects / scripts/sort_projects.py. Projects live directly under resolve_root/<Project>/ with the bucket folders below. Edit type_map to change where each clip type goes.",
+  "resolve_root": null,
+  "buckets": {
+    "a_roll": "A-Roll",
+    "b_roll": "B-Roll",
+    "images": "Images",
+    "notes": "_Notes",
+    "review": "_Review",
+    "exports": "Exports"
+  },
+  "type_map": {
+    "talking-head": "a_roll",
+    "unboxing": "a_roll",
+    "menu": "a_roll",
+    "screen-recording": "a_roll",
+    "screen": "a_roll",
+    "broll": "b_roll",
+    "b-roll": "b_roll",
+    "pan": "b_roll",
+    "pans": "b_roll",
+    "cutaway": "b_roll",
+    "bench": "b_roll",
+    "boot": "b_roll",
+    "fail": "b_roll",
+    "gameplay": "b_roll",
+    "photo": "images"
+  },
+  "default_bucket": "b_roll",
+  "review_threshold": 0.6,
+  "gap_minutes": 60,
+  "split_on_day_change": true,
+  "merge_similar_groups": 0.5,
+  "two_shoot_similarity": 0.12,
+  "match_existing_min_score": 0.34,
+  "slate": {
+    "enabled": true,
+    "max_seconds": 8,
+    "keywords": [
+      "box",
+      "packaging",
+      "slate",
+      "name card",
+      "title card",
+      "label",
+      "logo"
+    ]
+  },
+  "on_conflict": "suffix",
+  "respect_existing_buckets": true,
+  "protected_dirs": [
+    "BackUps",
+    "CacheClip",
+    ".gallery",
+    ".blackmagicsync-v2",
+    "ProxyMedia",
+    "OptimizedMedia"
+  ],
+  "sync_marker": ".syncprojectinfo.json",
+  "hold_sources": [],
+  "uninformative_name_patterns": [
+    "^cam([_ -]|\\d|$)",
+    "^dcim$",
+    "^\\d{3}[a-z_]*$",
+    "^\\d{4}-\\d{2}-\\d{2}( (footage|clips|video|videos|raw))?$",
+    "^\\d{8}$",
+    "^new folder",
+    "^untitled",
+    "^inbox$",
+    "^footage$",
+    "^clips$",
+    "^raw$",
+    "^import",
+    "^card ?\\d*$",
+    "^sd ?card"
+  ]
+}

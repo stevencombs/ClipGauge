@@ -1,0 +1,42 @@
+{
+  "auto_detect": true,
+  "override_tier": null,
+  "tiers": {
+    "air": {
+      "label": "Air (~16GB)",
+      "max_ram_gb": 24,
+      "prefer": "qwen2.5vl:7b",
+      "fallback": "qwen2.5vl:3b",
+      "notes": "Prefer 7b VLM; fall back to 3b if VRAM/RAM pressure.",
+      "whisper_model": "base.en",
+      "whisper_alternates": [
+        "small.en",
+        "tiny.en"
+      ],
+      "whisper_notes": "base.en (~142 MB) keeps RAM free for the 7b VLM on 16 GB; small.en (~466 MB) is more accurate if RAM allows."
+    },
+    "pro": {
+      "label": "Pro (~64GB)",
+      "min_ram_gb": 48,
+      "prefer": "gemma3:12b",
+      "alternates": [
+        "gemma3:27b",
+        "qwen2.5vl:32b"
+      ],
+      "notes": "Prefer gemma3:12b or stronger VLM when memory allows.",
+      "whisper_model": "large-v3-turbo",
+      "whisper_alternates": [
+        "medium.en",
+        "small.en"
+      ],
+      "whisper_notes": "large-v3-turbo (~1.6 GB) is fast on Metal and much more accurate; plenty of headroom at 64 GB."
+    }
+  },
+  "detection": {
+    "method": "sysctl_hw_memsize_or_psutil",
+    "air_if_gb_lt": 32,
+    "pro_if_gb_gte": 48,
+    "override_env": "AI_VIDEO_RENAMER_TIER",
+    "override_config_key": "override_tier"
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "dry_run": true,
+  "frame_percents": [
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80,
+    90
+  ],
+  "clip_types": [
+    "gameplay",
+    "broll",
+    "talking-head",
+    "bench",
+    "boot",
+    "menu",
+    "unboxing",
+    "fail",
+    "photo"
+  ],
+  "naming_pattern": "{YYYYMMDD}_{project}_{subject}_{clipType}[_t##].ext",
+  "resolve_guard": true,
+  "models_dir": "models",
+  "status_path": "logs/status.json",
+  "inbox_dir": "inbox",
+  "processing_dir": "processing",
+  "done_dir": "done",
+  "needs_review_dir": "needs-review",
+  "logs_dir": "logs",
+  "ffmpeg_path": null,
+  "ffprobe_path": null,
+  "notes": "Portable project folder (any drive). On exFAT do not use symlinks. OLLAMA_MODELS must point at models/.",
+  "review_threshold": 0.6,
+  "naming": {
+    "lowercase_ext": true,
+    "project_max_len": 24,
+    "subject_max_len": 32,
+    "fallback_project": "misc",
+    "fallback_subject": "clip",
+    "take_suffix_max": 99,
+    "strip_clip_type_words": true
+  },
+  "whisper": {
+    "enabled": true,
+    "models_dir": "models/whisper",
+    "model": {
+      "air": "base.en",
+      "pro": "large-v3-turbo"
+    },
+    "language": "en",
+    "threads": 4,
+    "keep_wav": false,
+    "excerpt_chars": 1200,
+    "timeout_s": 1800,
+    "download_base_url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+  },
+  "describe": {
+    "enabled": true,
+    "ollama_url": "http://127.0.0.1:11434",
+    "model": null,
+    "max_image_px": 672,
+    "num_ctx": 16384,
+    "temperature": 0.1,
+    "timeout_s": 900,
+    "keep_alive": "10m",
+    "json_retries": 1,
+    "transcript_excerpt_chars": 1200,
+    "tokens_per_image_min": 1100,
+    "max_output_tokens": 1024,
+    "repeat_penalty": 1.1,
+    "max_list_items": 12
+  },
+  "sidecar": {
+    "enabled": true,
+    "write_json": true,
+    "write_md": true,
+    "dry_run_dir": "logs/dry-run",
+    "protected_path_markers": [
+      "/DaVinci Resolve/",
+      "/DaVinci Resolve Media/"
+    ],
+    "write_next_to_clip": false
+  },
+  "ui": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "poll_ms": 2500,
+    "results_limit": 200,
+    "min_free_gb": 2
+  },
+  "notes_store": {
+    "dir": "notes"
+  }
+}

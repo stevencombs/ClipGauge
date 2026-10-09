@@ -1,0 +1,39 @@
+# Personal data and media: never commit
+models/
+notes/
+inbox/
+processing/
+exports/
+done/
+needs-review/
+logs/
+backups/
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.heic
+*.HEIC
+*.wav
+*.srt
+*.vtt
+*transcript*.txt
+config/custom-instructions.json
+config/*.local.json
+
+# Build output
+ClipGauge.app/
+*.app/
+dist/
+*.zip
+
+# Python / macOS
+__pycache__/
+*.pyc
+.DS_Store
+._*
+
+# Never commit credentials
+auth.json
+*.token
+.env

@@ -1,0 +1,35 @@
+{
+  "_comment": "ClipGauge \u203a Setup \u203a Updates. weekly_check = check only (never downloads). advisories = newer model families shown as info with a link; nothing is pulled or switched automatically.",
+  "weekly_check": true,
+  "advisories": {
+    "air": [
+      {
+        "model": "qwen3.5:9b",
+        "family": "Qwen3.5 9B (vision)",
+        "note": "newer Qwen family with image input; similar size to qwen2.5vl:7b, check RAM headroom on 16 GB"
+      },
+      {
+        "model": "qwen3-vl:8b",
+        "family": "Qwen3-VL 8B",
+        "note": "successor to Qwen2.5-VL"
+      },
+      {
+        "model": "gemma4:e4b",
+        "family": "Gemma 4 E4B",
+        "note": "Google's on-device vision model (Gemma terms of use)"
+      }
+    ],
+    "pro": [
+      {
+        "model": "gemma4:12b",
+        "family": "Gemma 4 12B",
+        "note": "successor to the tier's gemma3:12b (Gemma terms of use)"
+      },
+      {
+        "model": "qwen3.5:27b",
+        "family": "Qwen3.5 27B (vision)",
+        "note": "strong image understanding"
+      }
+    ]
+  }
+}
