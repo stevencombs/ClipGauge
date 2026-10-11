@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import renamer_actions as ra  # noqa: E402
+import filedates as fd  # noqa: E402
 from _common import ROOT, load_config  # noqa: E402
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -292,14 +293,21 @@ def cmd_copy_in(cfg: dict, paths: list[str]) -> int:
                 tmp = None
                 skipped.append(f"{src.name}: size changed while copying — not saved")
                 continue
-            st = src.stat()
-            os.utime(tmp, (st.st_atime, st.st_mtime))  # keep the recording date (used when metadata has none)
+            # Keep the recording dates (modified + created). A source with no date (some phone transfers) gets the
+            # capture time instead of ExFAT's "Jan 1, 1980"; anything that still differs is reported.
+            snap = fd.snapshot(src)
+            date_notes = fd.keep(tmp, snap, names=[src.name])
+            want, _how = fd.wanted(snap, tmp, [src.name])
             dest = inbox / final
             if dest.exists():  # appeared meanwhile: pick again, never overwrite
                 final = ra.unique_name(inbox, final)
                 dest = inbox / final
             os.rename(tmp, dest)
             tmp = None
+            bad = fd.check(dest, want)
+            if bad:
+                date_notes += fd.keep(dest, want, names=[src.name])
+            skipped.extend(n for n in date_notes if "couldn't" in n or "no original date" in n)
             copied.append({"from": str(src), "to": str(dest), "name": final, "renamed": final != src.name})
             out({"event": "file", "file": src.name, "saved_as": final, "index": i, "files": len(files),
                  "done_bytes": done_bytes, "total_bytes": total})

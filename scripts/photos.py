@@ -248,7 +248,14 @@ def photo_date(info: dict, path: str | os.PathLike) -> tuple[str, str]:
     m = re.match(r"^(\d{4})[:\-](\d{2})[:\-](\d{2})", raw)
     if m and info.get("creation_time"):
         return "".join(m.groups()), "exif_datetime_original"
-    return datetime.fromtimestamp(Path(path).stat().st_mtime).strftime("%Y%m%d"), "file_mtime"
+    import filedates as fd
+    ts, _how = fd.time_from_name(os.fspath(path))
+    if ts is not None and not fd.is_missing(ts):
+        return datetime.fromtimestamp(ts).strftime("%Y%m%d"), "file_name"
+    mt = Path(path).stat().st_mtime
+    if not fd.is_missing(mt):   # never name a photo after a missing date (ExFAT shows those as 1980-01-01)
+        return datetime.fromtimestamp(mt).strftime("%Y%m%d"), "file_mtime"
+    return datetime.now().strftime("%Y%m%d"), "no_original_date"
 
 
 # ------------------------------------------------------------ prepare ----

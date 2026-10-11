@@ -330,11 +330,13 @@ class Handler(BaseHTTPRequestHandler):
             os.rename(tmp, inbox / final)
         (inbox / ("._" + tmp.name)).unlink(missing_ok=True)
         mtime = q.get("mtime", "")
-        if mtime.isdigit():  # keep the original modified time (pipeline falls back to it for the clip date)
-            try:
-                os.utime(inbox / final, (time.time(), int(mtime) / 1000))
-            except (OSError, ValueError, OverflowError):
-                pass
+        # keep the original modified time; a missing one (0 / pre-1980) becomes the capture time, never 1980
+        try:
+            import filedates as fd
+            ts = int(mtime) / 1000 if mtime.isdigit() else None
+            fd.keep(inbox / final, {"mtime": ts, "birth": ts}, names=[final])
+        except (OSError, ValueError, OverflowError):
+            pass
         dt = max(time.monotonic() - t0, 1e-6)
         log(f"upload done: {final} {length} bytes in {dt:.1f}s ({length / dt / 1e6:.1f} MB/s)")
         self.send_json(201, {"ok": True, "name": final, "size": length, "renamed": final != plan["requested"],

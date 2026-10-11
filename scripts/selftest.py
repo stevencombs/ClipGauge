@@ -3070,5 +3070,74 @@ class TestClipGaugeV06(ApplyBase):
         self.assertNotIn("urllib.request", cg_src)
 
 
+class TestFileDates(unittest.TestCase):
+    """v0.7.5: copies, moves, renames and undo keep both dates; a missing date never becomes 1980-01-01."""
+
+    def setUp(self):
+        import filedates as fd
+        self.fd = fd
+        self.d = Path(tempfile.mkdtemp(prefix="cg-dates-"))
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.when = 1_791_000_000.0   # 2026-10-03 (any fixed recent time)
+
+    def mk(self, name, mtime, birth=None):
+        p = self.d / name
+        p.write_bytes(b"x" * 64)
+        if birth is None:
+            os.utime(p, (mtime, mtime))
+        else:
+            self.fd.set_dates(p, mtime, birth)
+        return p
+
+    def assertDates(self, p, mtime, birth):
+        st = os.stat(p)
+        self.assertAlmostEqual(st.st_mtime, mtime, delta=2)
+        self.assertAlmostEqual(st.st_birthtime, birth, delta=2)
+
+    def test_set_dates_sets_both(self):
+        p = self.mk("a.mp4", self.when + 3600, self.when)
+        self.assertDates(p, self.when + 3600, self.when)
+
+    def test_copy_keeps_both_dates(self):
+        src = self.mk("a.mp4", self.when + 60, self.when)
+        snap = self.fd.snapshot(src)
+        dst = self.d / "b.mp4"
+        shutil.copyfile(src, dst)               # a plain copy: new file, today's dates
+        self.assertEqual(self.fd.keep(dst, snap, names=[src.name]), [])
+        self.assertDates(dst, self.when + 60, self.when)
+
+    def test_move_file_keeps_both_dates(self):
+        src = self.mk("CAM_20261003101010_0001_D.MP4", self.when + 60, self.when)
+        notes = []
+        info = ar.move_file(src, self.d / "sub" / "20261003_x_y_broll.mp4", notes)
+        self.assertNotIn("dates", info)
+        self.assertDates(self.d / "sub" / "20261003_x_y_broll.mp4", self.when + 60, self.when)
+
+    def test_missing_date_becomes_capture_time_not_1980(self):
+        src = self.mk("PXL_20260105_211111000.jpg", 0)       # what some phone transfers produce
+        snap = self.fd.snapshot(src)
+        self.assertTrue(self.fd.is_missing(snap["mtime"]))
+        dst = self.d / "copy.jpg"
+        shutil.copyfile(src, dst)
+        notes = self.fd.keep(dst, snap, names=[src.name])
+        want = self.fd.time_from_name(src.name)[0]
+        self.assertDates(dst, want, want)
+        self.assertTrue(any("Pixel name" in n for n in notes))
+
+    def test_check_reports_a_changed_date(self):
+        p = self.mk("a.mp4", self.when + 60, self.when)
+        self.assertTrue(self.fd.check(p, {"mtime": self.when + 7200, "birth": self.when}))
+
+    def test_names_never_use_a_missing_date(self):
+        import media
+        p = self.mk("clip 1.mp4", 0)
+        day, how = media.clip_date({}, p)
+        self.assertNotIn(day[:4], ("1969", "1970", "1980"))
+        self.assertEqual(how, "no_original_date")
+        q = self.mk("Screenshot_20260109-150013.png", 0)
+        self.assertEqual(ph.photo_date({}, q), ("20260109", "file_name"))
+        self.assertEqual(media.clip_date({}, self.mk("PXL_20260104_224143000.mp4", 0))[0], "20260104")
+
+
 if __name__ == "__main__":
     unittest.main()

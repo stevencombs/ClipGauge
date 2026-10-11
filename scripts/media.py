@@ -57,11 +57,18 @@ def clip_date(info: dict, video: Path) -> tuple[str, str]:
                 return dt.strftime("%Y%m%d"), "creation_time"
         except ValueError:
             pass
+    import filedates as fd
+    ts, how = fd.time_from_name(video.name)
+    if ts is not None and not fd.is_missing(ts):
+        return datetime.fromtimestamp(ts).strftime("%Y%m%d"), "file_name"
     st = video.stat()
     birth = getattr(st, "st_birthtime", None)
-    if birth:
+    # A missing date (epoch 0, or ExFAT's 1980-01-01 stand-in) is never used for a name.
+    if birth and not fd.is_missing(birth) and (fd.is_missing(st.st_mtime) or birth <= st.st_mtime):
         return datetime.fromtimestamp(birth).strftime("%Y%m%d"), "file_birthtime"
-    return datetime.fromtimestamp(st.st_mtime).strftime("%Y%m%d"), "file_mtime"
+    if not fd.is_missing(st.st_mtime):
+        return datetime.fromtimestamp(st.st_mtime).strftime("%Y%m%d"), "file_mtime"
+    return datetime.now().strftime("%Y%m%d"), "no_original_date"
 
 
 def main() -> int:

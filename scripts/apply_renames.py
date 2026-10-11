@@ -61,6 +61,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import abs_path, atomic_write_text, load_config, section  # noqa: E402
 from rename_dry_run import apply_allowed, plan_rename  # noqa: E402
 import notes_store as ns  # noqa: E402
+import filedates as fd  # noqa: E402
 
 # Media types come from notes_store (same sets as run_pipeline; selftest checks). Photos are handled like clips.
 VIDEO_EXTS = ns.VIDEO_EXTS
@@ -395,7 +396,10 @@ def cleanup_clip_processing(cfg: dict, original_video: str | os.PathLike, final_
                 continue
             if not preview:
                 try:
+                    snap = fd.snapshot(src)
                     shutil.copy2(src, dst)
+                    for n in fd.keep(dst, snap, names=[src.name]):
+                        res["errors"].append(f"dates: {n}")
                 except OSError as e:
                     res["errors"].append(f"copy {src.name}: {e} — audio dir kept")
                     paths = [p for p in paths if p.name not in (audio.name, f"._{audio.name}")]
@@ -654,10 +658,15 @@ def move_file(src: Path, dst: Path, notes: list[str]) -> dict:
     if dst.exists() and not _same(src, dst):
         raise FileExistsError(f"refusing to overwrite {dst}")
     size = src.stat().st_size
+    snap = fd.snapshot(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
     os.rename(src, dst)
     got = dst.stat().st_size
     info = {"from": str(src), "to": str(dst), "size": size}
+    date_notes = fd.keep(dst, snap, names=[src.name])   # modified + created dates kept (checked after the move)
+    if date_notes:
+        info["dates"] = date_notes
+        notes.extend(f"dates: {n}" for n in date_notes)
     if got != size:  # cannot happen for a same-volume rename; recorded loudly, never silently
         info["size_mismatch"] = [size, got]
         notes.append(f"WARNING size mismatch after rename: {src.name} {size} B -> {dst.name} {got} B")

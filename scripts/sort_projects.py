@@ -71,6 +71,12 @@ RELINK_WARNING = ("Clips already imported into a DaVinci Resolve project go offl
                   "those groups.")
 
 
+def _fd():
+    """filedates (imported lazily: keeps --help fast)."""
+    import filedates
+    return filedates
+
+
 class Refused(Exception):
     def __init__(self, msg: str, code: int = EXIT_BLOCKED):
         super().__init__(msg)
@@ -905,7 +911,10 @@ def apply_plan(cfg: dict, plan: dict, edits: dict | None = None, log=print) -> d
                     res["skipped"].append({"src": str(src), "reason": f"{dest.name} appeared in {dest.parent.name}/"})
                     continue
                 try:
+                    snap = _fd().snapshot(src)
                     os.rename(src, dest)
+                    for n in _fd().keep(dest, snap, names=[src.name]):
+                        res.setdefault("date_warnings", []).append(n)
                 except OSError as e:
                     if e.errno == errno.EXDEV:
                         res["skipped"].append({"src": str(src), "reason": "different drive — not supported (copy by hand)"})
@@ -976,7 +985,10 @@ def undo(cfg: dict, plan_id: str | None = None, dry: bool = False, log=print) ->
                 res["would_restore"].append({"from": str(dest), "to": str(src)})
                 continue
             src.parent.mkdir(parents=True, exist_ok=True)
+            snap = _fd().snapshot(dest)
             os.rename(dest, src)
+            for n in _fd().keep(src, snap, names=[dest.name]):
+                res.setdefault("date_warnings", []).append(n)
             res["restored"] += 1
             if r.get("clip_id"):
                 rec = ns.load(cfg, r["clip_id"])

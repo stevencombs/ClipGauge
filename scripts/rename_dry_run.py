@@ -76,7 +76,11 @@ def main() -> int:
     if dest.exists():
         print(f"Refusing: destination exists: {dest}", file=sys.stderr)
         return 1
+    import filedates as fd
+    snap = fd.snapshot(src)
     shutil.move(str(src), str(dest))
+    for n in fd.keep(dest, snap, names=[src.name]):
+        print(f"dates: {n}", file=sys.stderr)
     print(f"Moved -> {dest}")
     return 0
 

@@ -120,7 +120,10 @@ def remove_sidecars(cfg: dict, items: list[dict], preview: bool = False) -> dict
                     if os.stat(src).st_dev != os.stat(dst.parent).st_dev:  # never copy + delete across volumes
                         kept.append({"sidecar": rel_to(src, vol), "reason": "not on the same volume — kept"})
                         continue
+                    import filedates as fd
+                    snap = fd.snapshot(src)
                     os.rename(src, dst)
+                    fd.keep(dst, snap, names=[src.name])
                 moved.append({"from": rel_to(src, vol), "to": str(dst)})
     return {"backup_dir": str(dest_root), "moved": moved, "kept": kept}
 
