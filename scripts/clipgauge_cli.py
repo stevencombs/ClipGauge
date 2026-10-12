@@ -413,6 +413,12 @@ def main(argv: list[str]) -> int:
             res = coded(200, ra.list_inbox(cfg))
         elif cmd == "start":
             res = coded(*ra.start_pipeline(cfg, {**parse_opts(rest), "origin": "clipgauge"}))
+        elif cmd == "run-queue":
+            import runqueue
+            if "--dismiss" in rest:
+                res = coded(200, {"dismissed": runqueue.dismiss(cfg)})
+            else:
+                res = coded(200, runqueue.summary(cfg))
         elif cmd == "stop":
             res = coded(*ra.stop_pipeline(cfg))
         elif cmd == "results":

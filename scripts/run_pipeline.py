@@ -58,6 +58,7 @@ from rename_dry_run import apply_allowed, plan_rename  # noqa: E402
 from sidecar import write_sidecars  # noqa: E402
 import instructions as ins  # noqa: E402
 import notes_store as ns  # noqa: E402
+import runqueue  # noqa: E402
 from status import write_status  # noqa: E402
 from transcribe import transcribe  # noqa: E402
 
@@ -546,6 +547,9 @@ def main() -> int:
                     help="Process in place (ClipGauge v0.6): media at PATH (a file, or a folder walked recursively; "
                          "repeatable) is renamed where it is, no copy into inbox/. Held / Resolve-internal / "
                          "Cloud-synced / cloud-drive folders are refused (scripts/inplace.py)")
+    ap.add_argument("--resume", action="store_true",
+                    help="Resume the last interrupted in-place run (logs/inplace-run.json): same sources, finished "
+                         "clips are skipped; folders moved since are found again by name")
     ap.add_argument("--confirm-resolve", action="store_true",
                     help="With --source: allow renaming under the DaVinci Resolve folder (the user confirmed that the "
                          "clips are not imported in a Resolve project — renaming imported media breaks its links)")
@@ -657,6 +661,16 @@ def run(args: argparse.Namespace) -> int:
         print(msg, file=sys.stderr)
         return 2
     sources = [str(x) for x in (getattr(args, "source", None) or [])]
+    if getattr(args, "resume", False) and not sources:
+        rq = runqueue.summary(cfg)
+        if not rq.get("sources"):
+            msg = "Nothing to resume: no in-place run recorded (logs/inplace-run.json) — not starting."
+            write_status({"state": "error", "step": "init", "message": msg, "last_error": msg})
+            print(msg, file=sys.stderr)
+            return 2
+        sources = rq["sources"]
+        args.confirm_resolve = bool(getattr(args, "confirm_resolve", False) or rq.get("confirm_resolve"))
+        print(f"Resuming the in-place run: {rq.get('left', 0)} of {rq.get('total', 0)} clip(s) were left")
     if sources and (folder or getattr(args, "video", None)):
         msg = "--source (process in place) can't be combined with --folder or --video — not starting."
         write_status({"state": "error", "step": "init", "message": msg, "last_error": msg})
@@ -684,12 +698,19 @@ def run(args: argparse.Namespace) -> int:
     force = bool(getattr(args, "force", False))
     skipped: list = []
     in_place, confirm = bool(sources), bool(getattr(args, "confirm_resolve", False))
+    rq_run = None
     if sources:
         import inplace
         sc = inplace.sort_cfg(cfg)
         found: list[Path] = []
         needs_confirm: list[str] = []
-        for src in sources:
+        moved_dirs: dict = {}
+        for k, src in enumerate(list(sources)):
+            if not Path(src).exists():  # moved/renamed since it was chosen (e.g. resume after moving the folder)
+                q = runqueue.relocate(Path(src), None, cfg, is_dir=None, cache=moved_dirs)
+                if q:
+                    print(f"  moved: {src} -> {q}")
+                    sources[k] = src = str(q)
             files, refused = inplace.media_in(src, cfg, sc)
             for r in refused:
                 print(f"  refused {r['path']}: {r['reason']}")
@@ -711,6 +732,7 @@ def run(args: argparse.Namespace) -> int:
         print(f"Process in place: {len(found)} media file(s) from {len(sources)} source(s)"
               + (" (dry run: nothing is renamed)" if dry else " — renamed where they are"))
         videos, skipped = filter_unhandled(found, cfg, force=force)  # every chosen clip (no --all needed)
+        rq_run = runqueue.start(cfg, sources, confirm, dry, videos, len(skipped)) if videos else None
     elif args.video:
         given = args.video if isinstance(args.video, list) else [args.video]
         videos, skipped = filter_unhandled([Path(v).expanduser().resolve() for v in given], cfg, force=force)
@@ -774,7 +796,30 @@ def run(args: argparse.Namespace) -> int:
     }
     reports, review = [], []
     rc = 0
+    sizes = {}
+    for v in videos:
+        try:
+            sizes[str(v)] = v.stat().st_size
+        except OSError:
+            pass
+    moved_cache: dict = {}
     for i, v in enumerate(videos, start=1):
+        orig = v
+        if in_place and not v.is_file():
+            # The folder was moved or renamed during the run: find the clip again instead of failing every clip left.
+            q = runqueue.relocate(v, sizes.get(str(v)), cfg, is_dir=False, cache=moved_cache)
+            if q:
+                print(f"\n  moved during the run: {v} -> {q}")
+                if rq_run:
+                    runqueue.note_moved(cfg, rq_run, v, q)
+                v = videos[i - 1] = q
+        if in_place and not v.is_file():
+            msg = f"{v.name}: no longer at {v.parent} and not found nearby (moved or deleted during the run) — left as is"
+            print(f"\n[{i}/{len(videos)}] SKIP {msg}", file=sys.stderr)
+            if rq_run:
+                runqueue.mark(cfg, rq_run, orig, v, False, "not found")
+            rc = 1
+            continue
         write_status({"state": "running", "queue": [str(x) for x in videos[i:]], "current_file": str(v), "step": "selected", "message": f"Selected {v.name} ({i}/{len(videos)})"})
         print(f"\n[{i}/{len(videos)}] Selected: {v}")
         try:
@@ -783,12 +828,19 @@ def run(args: argparse.Namespace) -> int:
             msg = f"{v.name}: {type(e).__name__}: {e}"
             write_status({"state": "error", "message": msg, "last_error": msg})
             print(f"ERROR {msg}", file=sys.stderr)
+            if rq_run:
+                runqueue.mark(cfg, rq_run, orig, v, False, f"{type(e).__name__}")
             rc = 1
             continue
+        if rq_run:
+            gone = "not found" in str(rep.get("action", ""))  # moved while this clip was being described
+            runqueue.mark(cfg, rq_run, orig, v, not gone, "moved during the clip; resume picks it up" if gone else "")
         reports.append(rep)
         if rep["needs_review"]:
             review.append(str(v))
 
+    if rq_run:
+        runqueue.finish(cfg, rq_run)
     n_ok = sum(1 for r in reports if r["proposed"])
     skip_note = f" {len(skipped)} already-handled clip(s) skipped." if skipped else ""
     if dry:

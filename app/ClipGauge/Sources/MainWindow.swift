@@ -484,6 +484,7 @@ private struct AddClipsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            if let ir = model.interruptedRun, !model.runActive { ResumeBanner(model: model, run: ir) }
             if main.queue.isEmpty {
                 DropZone(main: main)
             } else {
@@ -934,5 +935,28 @@ extension PreviewData {
                 reasons: ["unreadable video: ffprobe could not read it (moov atom not found), 1.2 KB — looks like an empty or interrupted recording"]),
             row("CAM_20260101104541_0019_D.MP4", "20261004_retro-game-expo_crowd-pan_broll.mp4", "broll", 0.79, "dry run"),
         ]
+    }
+}
+
+
+/// v0.7.6: an in-place run stopped before its list was done — one click picks it up where it left off.
+private struct ResumeBanner: View {
+    @ObservedObject var model: RenamerModel
+    let run: InterruptedRun
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.clockwise.circle.fill").font(.title2).foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(run.folderName): \(run.left) of \(run.total) clip(s) left from the last run").font(.callout.weight(.semibold))
+                Text("It stopped before the list was done. Resume skips the clips already renamed and finds the folder again if it moved.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("Dismiss") { model.dismissInterruptedRun() }
+            Button("Resume\(run.dry ? " (dry run)" : "")") { model.resumeInPlace() }.keyboardShortcut(.defaultAction)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
     }
 }

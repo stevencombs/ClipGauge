@@ -291,6 +291,8 @@ final class RenamerModel: ObservableObject {
     // MARK: derived state
 
     var lexarOK: Bool { root != nil }
+    /// v0.7.6: the last in-place run stopped (Stop, crash, sleep, quit) with clips left — logs/inplace-run.json.
+    @Published var interruptedRun: InterruptedRun? = nil
     var runActive: Bool { lock != nil }
     var isPipelineRun: Bool {
         guard let l = lock else { return false }
@@ -405,6 +407,8 @@ final class RenamerModel: ObservableObject {
             let ins = InstructionsSummary.read(root: r)
             if ins != instructions { instructions = ins }
             lock = activeLock(r)
+            let ir = InterruptedRun.read(r)
+            if ir != interruptedRun { interruptedRun = ir }
             readLastRenamed(r)
             if !preview { checkNewReviewItems() }
             refreshInbox(force: false)
@@ -725,6 +729,21 @@ final class RenamerModel: ObservableObject {
 
     var onRunStarted: () -> Void = {}
 
+    /// Resume the interrupted in-place run: same sources (the engine finds moved folders again); finished clips are skipped.
+    func resumeInPlace() {
+        guard let ir = interruptedRun else { return }
+        if let b = startBlocker { alert("Can't resume yet", b); return }
+        engine(["run-queue"]) { j in
+            let srcs = (j["sources"] as? [String]) ?? ir.sources
+            let o = RunOptions(dry: ir.dry, sources: srcs, confirmResolve: ir.confirmResolve)
+            self.startRun(o, pending: ir.left)
+        }
+    }
+
+    func dismissInterruptedRun() {
+        engine(["run-queue", "--dismiss"]) { _ in self.tick() }
+    }
+
     func stopRun() {
         let cur = currentClip ?? "the current clip"
         guard confirm("Stop processing?", "The clip in progress (\(cur)) is abandoned; clips already finished stay renamed and in the report.", ok: "Stop") else { return }
@@ -805,5 +824,42 @@ final class RenamerModel: ObservableObject {
         a.addButton(withTitle: ok)
         a.addButton(withTitle: "Cancel")
         return a.runModal() == .alertFirstButtonReturn
+    }
+}
+
+
+/// An in-place run that ended before its list was done (v0.7.6). Read from logs/inplace-run.json on every tick.
+struct InterruptedRun: Equatable {
+    var left: Int
+    var total: Int
+    var sources: [String]
+    var confirmResolve: Bool
+    var dry: Bool
+    var updatedAt: String
+
+    var folderName: String {
+        let names = Set(sources.map { s -> String in
+            let u = URL(fileURLWithPath: s)
+            return FileManager.default.isDirectory(u) ? u.lastPathComponent : u.deletingLastPathComponent().lastPathComponent
+        })
+        return names.count == 1 ? names.first! : "\(names.count) folders"
+    }
+
+    static func read(_ root: URL) -> InterruptedRun? {
+        guard let d = readJSONObject(root.appendingPathComponent("logs/inplace-run.json")),
+              (d["state"] as? String) == "running" else { return nil }
+        if let pid = d["pid"] as? Int, pidAlive(Int32(pid)) { return nil }
+        let left = ((d["remaining"] as? [Any])?.count ?? 0) + ((d["failed"] as? [Any])?.count ?? 0)
+        guard left > 0 else { return nil }
+        return InterruptedRun(left: left, total: (d["total"] as? Int) ?? left, sources: (d["sources"] as? [String]) ?? [],
+                              confirmResolve: (d["confirm_resolve"] as? Bool) ?? false, dry: (d["dry_run"] as? Bool) ?? false,
+                              updatedAt: (d["updated_at"] as? String) ?? "")
+    }
+}
+
+extension FileManager {
+    func isDirectory(_ u: URL) -> Bool {
+        var d: ObjCBool = false
+        return fileExists(atPath: u.path, isDirectory: &d) && d.boolValue
     }
 }

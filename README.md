@@ -573,6 +573,14 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 
 `ClipGauge.app/Contents/MacOS/ClipGauge --sync-selftest` runs the sync checks in a temporary folder.
 
+### What's new in ClipGauge v0.7.6: long in-place runs finish
+
+- An in-place run records its progress in `logs/inplace-run.json`; after a Stop, crash, sleep or quit, a **Resume**
+  banner picks up where it stopped (finished clips are skipped).
+- A folder moved or renamed during a run (or between runs) is found again by name and size instead of failing every
+  clip left. No per-run cap.
+- A clip that already has a generated-looking name (e.g. hand-edited after a rename) isn't processed twice.
+
 ## Credits & contact
 
 Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot**, Steven's AI assistant.

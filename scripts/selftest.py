@@ -3070,6 +3070,79 @@ class TestClipGaugeV06(ApplyBase):
         self.assertNotIn("urllib.request", cg_src)
 
 
+class TestRunQueue(unittest.TestCase):
+    """v0.7.6: in-place runs record progress, resume, and find clips whose folder moved during the run."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp())
+        self.cfg = {"logs_dir": str(self.tmp / "logs")}
+        self.res = self.tmp / "DaVinci Resolve"
+        (self.res / "Ranch Tour").mkdir(parents=True)
+        for n in ("a.mp4", "b.mp4", "c.mp4"):
+            (self.res / "Ranch Tour" / n).write_bytes(b"x" * 10)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_relocate_after_folder_move(self):
+        import runqueue
+        old = self.res / "Ranch Tour" / "b.mp4"
+        (self.res / "Trip").mkdir()
+        os.rename(self.res / "Ranch Tour", self.res / "Trip" / "Ranch Tour")
+        cache = {}
+        q = runqueue.relocate(old, 10, None, is_dir=False, cache=cache)
+        self.assertEqual(q, self.res / "Trip" / "Ranch Tour" / "b.mp4")
+        # the next clip from the same folder resolves through the cache
+        self.assertEqual(runqueue.relocate(self.res / "Ranch Tour" / "c.mp4", 10, None, cache=cache),
+                         self.res / "Trip" / "Ranch Tour" / "c.mp4")
+        self.assertIsNone(runqueue.relocate(old, 11, None, is_dir=False))  # size differs: not the same clip
+
+    def test_relocate_ambiguous_is_none(self):
+        import runqueue
+        old = self.res / "Gone" / "a.mp4"
+        (self.res / "Other").mkdir()
+        (self.res / "Other" / "a.mp4").write_bytes(b"x" * 10)
+        self.assertIsNone(runqueue.relocate(old, 10, None, is_dir=False))
+
+    def test_interrupted_and_resume_summary(self):
+        import runqueue
+        vids = [self.res / "Ranch Tour" / n for n in ("a.mp4", "b.mp4", "c.mp4")]
+        d = runqueue.start(self.cfg, [str(self.res / "Ranch Tour")], True, False, vids, 2)
+        runqueue.mark(self.cfg, d, vids[0], vids[0], True)
+        d["pid"] = 999999  # the run died (Stop / crash / sleep)
+        runqueue._write(self.cfg, d)
+        sm = runqueue.summary(self.cfg)
+        self.assertTrue(sm["interrupted"])
+        self.assertEqual((sm["left"], sm["total"]), (2, 5))
+        self.assertTrue(sm["confirm_resolve"])
+        runqueue.finish(self.cfg, runqueue.read(self.cfg))
+        self.assertFalse(runqueue.summary(self.cfg)["interrupted"])
+
+    def test_resume_finds_moved_source_folder(self):
+        import runqueue
+        vids = [self.res / "Ranch Tour" / "a.mp4"]
+        d = runqueue.start(self.cfg, [str(self.res / "Ranch Tour")], False, True, vids, 0)
+        d["pid"] = 999999
+        runqueue._write(self.cfg, d)
+        (self.res / "Trip").mkdir()
+        os.rename(self.res / "Ranch Tour", self.res / "Trip" / "Ranch Tour")
+        self.assertEqual(runqueue.summary(self.cfg)["sources"], [str(self.res / "Trip" / "Ranch Tour")])
+
+    def test_looks_named(self):
+        from apply_renames import looks_named
+        for n in ("20261010_ranch-tour_tourists-at-the-ranch_aroll.mp4",
+                  "20261010_ranch-tour_tourists-at-the-ranch_aroll_t01.mp4", "20261009_island_map-route_broll.png"):
+            self.assertTrue(looks_named(n), n)
+        for n in ("CAM_20261010075631_0001_D.MP4", "20261010_123456.mp4", "PXL_20261009_123.mp4", "IMG_0001.MOV",
+                  "20261010_123456_001.mp4", "My Clip.mov"):
+            self.assertFalse(looks_named(n), n)
+
+    def test_no_run_cap(self):
+        import inplace
+        self.assertGreaterEqual(inplace.MAX_FILES, 1000)
+
+
 class TestFileDates(unittest.TestCase):
     """v0.7.5: copies, moves, renames and undo keep both dates; a missing date never becomes 1980-01-01."""
 

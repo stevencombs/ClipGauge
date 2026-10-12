@@ -155,6 +155,17 @@ def name_regex(cfg: dict) -> re.Pattern:
     return re.compile(rf"^\d{{8}}_{seg}_{seg}_(?:{'|'.join(types)})(?:_t\d{{2}})?\.[A-Za-z0-9]+$")
 
 
+_NAMED_SHAPE = re.compile(r"^(19|20)\d{6}_(?=[^.]*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*(?:_[a-z0-9]+(?:-[a-z0-9]+)*){1,4}\.[A-Za-z0-9]+$")
+
+
+def looks_named(name: str) -> bool:
+    """A name ClipGauge (or the user, by hand) already gave: YYYYMMDD_slug_…, lowercase words, at least one letter
+    after the date. Camera names (CAM_…, PXL_…, IMG_…, 20261010_123456.mp4) don't match. v0.7.6: a clip renamed by
+    a run and then hand-edited (broll -> aroll) after its folder moved is not processed a second time."""
+    stem_parts = name.rsplit(".", 1)[0].split("_")[1:]
+    return bool(_NAMED_SHAPE.match(name)) and any(re.search(r"[a-z]", p) for p in stem_parts if not re.fullmatch(r"t\d+", p))
+
+
 def matches_pattern(name: str, cfg: dict) -> bool:
     return bool(name_regex(cfg).match(name))
 
@@ -569,6 +580,8 @@ def handled_reason(video: Path, cfg: dict, index: dict | None = None) -> tuple[s
         return "needs-review", f"marked needs-review ({index['review'][k].get('time')})"
     if matches_pattern(video.name, cfg):
         return "pattern", "already has a generated name"
+    if looks_named(video.name):
+        return "pattern", "already named (date_project_…_type shape, e.g. hand-edited after a rename)"
     if read_sidecar(video.parent / f"{video.stem}.json") is not None:
         return "sidecar", f"has sidecar {video.stem}.json"
     if clip_record(video, cfg, index) is not None:
