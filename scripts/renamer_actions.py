@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Shared actions behind ClipGauge (via clipgauge_cli.py) and the legacy web UI (web_ui.py): inbox listing, upload/copy
+Shared actions behind ClipGauge (via clipgauge_cli.py): inbox listing, upload/copy
 naming, run start/stop, results, apply / move-into-folder, transcript bundles, sort and instruction helpers.
-No HTTP here. Moved out of web_ui.py in v0.6 so the web UI can be deleted in v0.7 without touching ClipGauge.
+No HTTP here. (The legacy web UI that once shared this module was removed in v0.8.)
 """
 from __future__ import annotations
 
@@ -18,12 +18,8 @@ import threading
 import time
 import unicodedata
 import urllib.parse
-import urllib.request
 from datetime import datetime
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import CONFIG_PATH, ROOT, abs_path, atomic_write_text, load_config, section, status_path  # noqa: E402
@@ -35,8 +31,6 @@ import notes_store as ns  # noqa: E402
 
 APP_ID = "ai-video-renamer-ui"
 SCRIPTS = Path(__file__).resolve().parent
-DEFAULT_PORT = 8765
-LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 TEMP_PREFIX = ".uploading-"
 # Media types from notes_store (same as run_pipeline; selftest checks) — anything else would never be processed.
 VIDEO_EXTS = ns.VIDEO_EXTS
@@ -45,8 +39,6 @@ MEDIA_EXTS = ns.MEDIA_EXTS  # accepted by upload / drag-drop and listed as proce
 CHUNK = 1024 * 1024  # 1 MiB streaming chunks: memory stays flat for multi-GB uploads
 MAX_NAME_BYTES = 200
 EXFAT_BAD = re.compile(r'[\\/:*?"<>|]')
-QUIET_PATHS = {"/api/status", "/api/inbox", "/api/updates", "/api/results", "/api/ping", "/api/upload-check", "/api/folder-check",
-               "/api/transcript-scopes", "/favicon.ico"}
 EXPORT_NAME_RE = re.compile(r"^transcripts-[A-Za-z0-9._-]{1,180}\.(json|md)$")
 EXPORT_TYPES = {".json": "application/json; charset=utf-8", ".md": "text/markdown; charset=utf-8"}
 SUBFOLDER_DETAIL = "inside a subfolder — the pipeline only processes files directly in inbox/ (move it out to process it)"
@@ -59,21 +51,6 @@ RESERVED: set[str] = set()  # lowercase final names of in-flight uploads (ExFAT 
 
 def log(msg: str) -> None:
     print(f"[{datetime.now().astimezone().isoformat(timespec='seconds')}] {msg}", file=sys.stderr, flush=True)
-
-
-def ui_cfg(cfg: dict) -> dict:
-    u = section(cfg, "ui")
-    host = str(u.get("host") or "127.0.0.1")
-    if host not in LOOPBACK:
-        log(f"ui.host {host!r} is not loopback — using 127.0.0.1 (this UI is local-only)")
-        host = "127.0.0.1"
-    return {
-        "host": "127.0.0.1" if host == "localhost" else host,
-        "port": int(u.get("port") or DEFAULT_PORT),
-        "poll_ms": int(u.get("poll_ms") or 2500),
-        "results_limit": int(u.get("results_limit") or 200),
-        "min_free_gb": float(u.get("min_free_gb") if u.get("min_free_gb") is not None else 2),
-    }
 
 
 def inbox_dir(cfg: dict) -> Path:
@@ -462,7 +439,7 @@ def start_pipeline(cfg: dict, opts: dict | None = None) -> tuple[int, dict]:
         if Path("/usr/bin/caffeinate").exists():
             cmd = ["/usr/bin/caffeinate", "-i"] + cmd  # keep the Mac awake for the whole batch
         with open(run_log, "ab") as lf:
-            lf.write(f"# started from {'ClipGauge' if origin == 'clipgauge' else 'web UI'} "
+            lf.write(f"# started from {'ClipGauge' if origin == 'clipgauge' else 'Terminal'} "
                      f"{datetime.now().astimezone().isoformat(timespec='seconds')}: {' '.join(cmd)}\n".encode())
             lf.flush()
             proc = subprocess.Popen(cmd, cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT,
@@ -898,7 +875,7 @@ def read_results(cfg: dict, limit: int = 200, dedupe: bool = True) -> dict:
             "dry_run": r.get("dry_run"),
             "status": status,  # renamed | needs review | skipped | dry run (ClipGauge results table)
             "log_id": lrec.get("id"),
-            "batch": lrec.get("batch"),
+            "batch": lrec.get("batch") or r.get("batch"),
             "in_place": bool(lrec.get("in_place")),
             "unreadable": bool(r.get("unreadable")),
             "action_reason": r.get("action_reason"),

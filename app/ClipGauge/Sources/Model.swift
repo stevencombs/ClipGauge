@@ -293,6 +293,8 @@ final class RenamerModel: ObservableObject {
     var lexarOK: Bool { root != nil }
     /// v0.7.6: the last in-place run stopped (Stop, crash, sleep, quit) with clips left — logs/inplace-run.json.
     @Published var interruptedRun: InterruptedRun? = nil
+    /// v0.8: the multi-project queue (logs/queue.json), read on every tick.
+    @Published var queue = QueueState()
     var runActive: Bool { lock != nil }
     var isPipelineRun: Bool {
         guard let l = lock else { return false }
@@ -359,7 +361,7 @@ final class RenamerModel: ObservableObject {
         if !lexarOK { return Project.remembered == nil ? "Open Setup to choose or create one" : "Plug in the drive to continue" }
         if runActive && isPipelineRun {
             var s = runIsDry ? "Dry run" : "Live"
-            if let l = launchedBy { s += " · from \(l == "ui" ? "web UI (legacy)" : l)" }
+            if let l = launchedBy { s += " · from \(l == "ui" ? "Terminal" : l)" }
             return s
         }
         if updates.jobActive, let j = updates.job {
@@ -409,6 +411,8 @@ final class RenamerModel: ObservableObject {
             lock = activeLock(r)
             let ir = InterruptedRun.read(r)
             if ir != interruptedRun { interruptedRun = ir }
+            let q = QueueState.read(r)
+            if q != queue { queue = q }
             readLastRenamed(r)
             if !preview { checkNewReviewItems() }
             refreshInbox(force: false)
@@ -663,7 +667,7 @@ final class RenamerModel: ObservableObject {
     /// Why a run can't start right now (nil = it can).
     var startBlocker: String? {
         if !lexarOK { return Project.missingTitle }
-        if runActive { return "A run is already active." }
+        if runActive || queue.running { return "A run is already active." }
         if resolveRunning { return "Paused, Resolve is open — quit DaVinci Resolve, then start processing." }
         if updates.jobActive { return "Updates are being installed (\(updates.job?.percent ?? 0)% done) — processing can start when they finish." }
         return nil

@@ -1,7 +1,7 @@
 // ClipGauge — the all-in-one menu bar app for AI-Video-Renamer (v0.6; was "ClipGuage" ≤ v0.5). Styled after GrokGauge.
 //   ClipGauge.app                      menu bar app (LSUIElement) + main window + Ask the Model chat
 //   .../MacOS/ClipGauge --print-state  one poll, print the derived state (for scripts / debugging)
-//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074]   write the preview PNGs offscreen
+//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08]   write the preview PNGs offscreen
 //   .../MacOS/ClipGauge --sync-selftest                          settings-sync checks in a temporary folder
 import AppKit
 import Combine
@@ -136,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
         model.showInstructions = { [weak self] in self?.openInstructions() }
         model.showMain = { [weak self] in self?.openMain() }
         model.showChat = { [weak self] p in self?.openChat(p) }
-        model.onRunStarted = { [weak self] in self?.main.tab = .results; self?.main.loadResults() }
+        model.onRunStarted = { [weak self] in self?.main.tab = .queue }
         MainMenu.install(target: self)
         model.objectWillChange
             .receive(on: RunLoop.main)
@@ -437,15 +437,7 @@ enum MainMenu {
         setup.keyEquivalentModifierMask = [.command, .option]   // ⌘, is Settings since v0.6.1 (as in GrokGauge)
         setup.target = target
         app.addItem(setup)
-        let upd = NSMenuItem(title: "Check for Updates…", action: #selector(AppDelegate.openUpdatesAction(_:)), keyEquivalent: "")
-        upd.target = target
-        app.addItem(upd)
-        let srt = NSMenuItem(title: "Sort into Projects…", action: #selector(AppDelegate.openSortAction(_:)), keyEquivalent: "")
-        srt.target = target
-        app.addItem(srt)
-        let ins = NSMenuItem(title: "Instructions…", action: #selector(AppDelegate.openInstructionsAction(_:)), keyEquivalent: "i")
-        ins.target = target
-        app.addItem(ins)
+        // v0.8: Sort, Instructions and Updates live in the window's Tools ▾ menu and Setup (no duplicates here).
         let support = NSMenuItem(title: "Support \(kAppName)…", action: #selector(AppDelegate.openSupportAction(_:)), keyEquivalent: "")
         support.target = target
         app.addItem(support)
@@ -536,6 +528,11 @@ enum CLI {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let m = RenamerModel(preview: true)
         settle(m)
+        if CommandLine.arguments.contains("--only-v08") {
+            let ok = renderV08(m, dir: dir)
+            print(ok ? "Wrote v0.8 previews to \(dir.path)" : "Some previews failed")
+            return ok ? 0 : 1
+        }
         if CommandLine.arguments.contains("--only-v074") {
             let ok = renderV074(m, dir: dir)
             print(ok ? "Wrote v0.7.4 previews to \(dir.path)" : "Some previews failed")
@@ -642,40 +639,7 @@ enum CLI {
     /// reply from the local model when --chat-prompt is given and nothing is busy), popover and About.
     static func renderV06(_ m: RenamerModel, dir: URL) -> Bool {
         var ok = true
-        let mm = MainModel(renamer: m)
-        for scheme in [ColorScheme.dark, .light] {
-            let name = scheme == .dark ? "dark" : "light"
-            ok = renderView(MainView(main: mm, model: m, scrolls: false).frame(width: 980), scheme: scheme,
-                            to: dir.appendingPathComponent("v06-main-add-\(name).png")) && ok
-        }
-        let ex = MainModel(renamer: m)
-        ex.exampleData = true
-        func q(_ path: String, _ c: [String: Any]) -> QueuedItem { var i = QueuedItem(url: URL(fileURLWithPath: path)); i.check = c; return i }
-        ex.queue = [
-            q("/Volumes/SD-CARD/DCIM/100MEDIA", ["status": "ok", "media_count": 14, "copy_count": 14, "bytes": NSNumber(value: 9_800_000_000), "copy_ok": true]),
-            q("/Users/you/Desktop/IMG_0001.HEIC", ["status": "ok", "media_count": 1, "copy_count": 1, "bytes": NSNumber(value: 2_400_000), "copy_ok": true]),
-            q("/Volumes/Lexar/DaVinci Resolve/Held Project", ["status": "refused", "reason": "“Held Project” is on hold — not touching it", "media_count": 0, "copy_count": 0, "copy_ok": false]),
-        ]
-        ex.folderName = "Retro Game Expo"
-        ex.folderAsProject = true
-        ok = renderView(MainView(main: ex, model: m, scrolls: false).frame(width: 980), scheme: .dark,
-                        to: dir.appendingPathComponent("v06-main-add-example-dark.png")) && ok
-        ex.mode = .inPlace
-        ex.queue[0].check?["needs_confirm"] = false
-        ex.queue.append(q("/Volumes/Lexar/DaVinci Resolve/Retro Game Expo/B-Roll", ["status": "needs_confirm", "needs_confirm": true, "media_count": 6, "copy_count": 6, "copy_ok": true, "reason": "inside the DaVinci Resolve folder"]))
-        ok = renderView(MainView(main: ex, model: m, scrolls: false).frame(width: 980), scheme: .light,
-                        to: dir.appendingPathComponent("v06-main-inplace-example-light.png")) && ok
-        let res = MainModel(renamer: m)
-        PreviewData.resultsMock(res)
-        for scheme in [ColorScheme.dark, .light] {
-            let name = scheme == .dark ? "dark" : "light"
-            ok = renderView(MainView(main: res, model: m, scrolls: false).frame(width: 980), scheme: scheme,
-                            to: dir.appendingPathComponent("v06-main-results-example-\(name).png")) && ok
-        }
-        res.startEdit(res.rows[2])
-        res.filter = .review
-        ok = renderView(MainView(main: res, model: m, scrolls: false).frame(width: 980), scheme: .dark,
-                        to: dir.appendingPathComponent("v06-main-review-example-dark.png")) && ok
+        ok = renderV08(m, dir: dir, prefix: "v06-") && ok
         // Ask the Model: optional real reply
         let chat = ChatModel(renamer: m)
         chat.loadModels()
@@ -805,25 +769,51 @@ enum CLI {
 
     /// v0.7.2: About (PayPal button), the popover footer and the app menu, both with "Support ClipGauge…".
     /// v0.7.4: dozens of clips dropped from a held folder → one summary row, scrolling list, pinned controls, status.
-    static func renderV074(_ m: RenamerModel, dir: URL) -> Bool {
-        let ex = MainModel(renamer: m)
-        ex.exampleData = true
-        ex.mode = .inPlace
-        let held = "/Volumes/Lexar/DaVinci Resolve/Held Project"
-        let reason = "“Held Project” is on hold (hold_sources in config/project-sort.json) — not touching it"
-        func q(_ path: String, _ c: [String: Any]) -> QueuedItem { var i = QueuedItem(url: URL(fileURLWithPath: path)); i.check = c; return i }
-        ex.queue = [q(held, ["status": "refused", "reason": reason, "copy_ok": false])]
-            + (1...36).map { q(held + String(format: "/CLIP_%04d.MP4", $0), ["status": "refused", "reason": reason, "copy_ok": false]) }
-        var ok = renderView(MainView(main: ex, model: m).frame(width: 980, height: 620), scheme: .dark,
-                            to: dir.appendingPathComponent("v074-add-held-dark.png"))
-        // Held items next to real ones: the summary row on top, the rest listed and scrollable.
-        let mix = MainModel(renamer: m)
-        mix.exampleData = true
-        mix.mode = .inPlace
-        mix.queue = ex.queue + (1...14).map { q(String(format: "/Volumes/SD-CARD/DCIM/100MEDIA/CLIP_%04d.MP4", $0),
-                                                  ["status": "ok", "media_count": 1, "copy_count": 1, "copy_ok": true]) }
-        ok = renderView(MainView(main: mix, model: m).frame(width: 980, height: 620), scheme: .dark,
-                        to: dir.appendingPathComponent("v074-add-mixed-dark.png")) && ok
+    /// v0.8 (replaces the v0.6–v0.7.4 Add Clips previews): queue (empty, waiting, running), results with projects,
+    /// transcript search, the minimal popover. Example data is labelled EXAMPLE DATA and never touches disk.
+    static func renderV074(_ m: RenamerModel, dir: URL) -> Bool { renderV08(m, dir: dir, prefix: "v074-") }
+
+    static func renderV08(_ m: RenamerModel, dir: URL, prefix: String = "v08-") -> Bool {
+        var ok = true
+        let empty = MainModel(renamer: m)
+        empty.exampleQueue = QueueState()
+        ok = renderView(MainView(main: empty, model: m).frame(width: 980, height: 560), scheme: .dark,
+                        to: dir.appendingPathComponent("\(prefix)main-queue-empty-dark.png")) && ok
+        let waiting = MainModel(renamer: m)
+        waiting.exampleData = true
+        waiting.exampleQueue = PreviewData.queueMock(running: false)
+        for scheme in [ColorScheme.dark, .light] {
+            let name = scheme == .dark ? "dark" : "light"
+            ok = renderView(MainView(main: waiting, model: m).frame(width: 980, height: 620), scheme: scheme,
+                            to: dir.appendingPathComponent("\(prefix)main-queue-\(name).png")) && ok
+        }
+        let running = MainModel(renamer: m)
+        running.exampleData = true
+        running.exampleQueue = PreviewData.queueMock(running: true)
+        ok = renderView(MainView(main: running, model: m).frame(width: 980, height: 620), scheme: .dark,
+                        to: dir.appendingPathComponent("\(prefix)main-queue-running-dark.png")) && ok
+        let res = MainModel(renamer: m)
+        PreviewData.resultsMock(res)
+        res.exampleQueue = PreviewData.queueMock(running: true)
+        for i in res.rows.indices { var d = res.rows[i].d; d["batch"] = "example-a1"; res.rows[i] = ResultRow(d) }
+        for scheme in [ColorScheme.dark, .light] {
+            let name = scheme == .dark ? "dark" : "light"
+            ok = renderView(MainView(main: res, model: m).frame(width: 980, height: 620), scheme: scheme,
+                            to: dir.appendingPathComponent("\(prefix)main-results-\(name).png")) && ok
+        }
+        res.search = "ranch tour"
+        res.hits = [["file": "20261010_ranch_guide-welcome_talking-head.mp4", "start": NSNumber(value: 4.2),
+                     "text": "Welcome to the ranch tour, everybody — stay with your guide.", "path": "/Volumes/Lexar/x.mp4"],
+                    ["file": "20261010_ranch_zipline-briefing_aroll.mp4", "start": NSNumber(value: 71.0),
+                     "text": "The ranch tour continues past the zipline platform.", "path": "/Volumes/Lexar/y.mp4"]]
+        ok = renderView(MainView(main: res, model: m).frame(width: 980, height: 560), scheme: .dark,
+                        to: dir.appendingPathComponent("\(prefix)main-results-search-dark.png")) && ok
+        let saved = m.queue
+        m.queue = PreviewData.queueMock(running: true)
+        ok = renderView(PopoverView(model: m), scheme: .dark, to: dir.appendingPathComponent("\(prefix)popover-running-dark.png")) && ok
+        ok = renderView(PopoverView(model: m), scheme: .light, to: dir.appendingPathComponent("\(prefix)popover-running-light.png")) && ok
+        m.queue = saved
+        ok = renderView(PopoverView(model: m), scheme: .dark, to: dir.appendingPathComponent("\(prefix)popover-dark.png")) && ok
         return ok
     }
 

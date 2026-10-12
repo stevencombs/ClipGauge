@@ -2,7 +2,7 @@
 """Check (read-only) whether the renamer's AI models and tools have updates.
 
   python3 scripts/check_updates.py            # human summary
-  python3 scripts/check_updates.py --json     # machine-readable (ClipGauge, web UI)
+  python3 scripts/check_updates.py --json     # machine-readable (ClipGauge)
   python3 scripts/check_updates.py --no-brew-update   # don't refresh Homebrew's index first (weekly auto-check)
 
 What it checks — nothing is downloaded or installed here (see apply_updates.py for that):

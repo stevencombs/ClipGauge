@@ -249,8 +249,7 @@ final class SetupModel: ObservableObject {
         for d in ["inbox", "logs", "processing", "notes", "exports", "models/whisper", "needs-review", "done"] {
             try fm.createDirectory(at: target.appendingPathComponent(d), withIntermediateDirectories: true)
         }
-        for f in ["scripts/setup-mac.sh", "scripts/setup-whisper.sh", "scripts/setup-ollama-env.sh",
-                  "Start Renamer UI.command", "Stop Renamer UI.command"] {
+        for f in ["scripts/setup-mac.sh", "scripts/setup-whisper.sh", "scripts/setup-ollama-env.sh"] {
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.appendingPathComponent(f).path)
         }
         return copied

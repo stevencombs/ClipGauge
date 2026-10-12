@@ -35,7 +35,7 @@ from _common import ROOT, abs_path, atomic_write_text, load_config, section, slu
 STORE_SCHEMA = 1
 TOOL = "AI-Video-Renamer"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
-# Single source of truth for media types (run_pipeline / apply_renames / web_ui / bundle import these; selftest checks)
+# Single source of truth for media types (run_pipeline / apply_renames / bundle import these; selftest checks)
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".mts"}
 PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".dng", ".webp", ".tif", ".tiff"}
 MEDIA_EXTS = VIDEO_EXTS | PHOTO_EXTS

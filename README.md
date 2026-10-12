@@ -20,7 +20,7 @@ Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon wit
 | `processing/` | Working area: extracted frames, audio/transcripts, temp files. A clip's entries are deleted right after it is renamed (needs-review clips keep theirs). |
 | `done/`, `needs-review/` | Not used any more (clips stay in `inbox/`; the name shows the state). Kept for compatibility. |
 | `models/` | Ollama model store (`OLLAMA_MODELS` must point here). `models/whisper/` holds whisper.cpp ggml models. |
-| `logs/` | `status.json`, `timings.json` (ETA averages), `pipeline.lock` (one run at a time), run logs (`clipgauge-run-*.log`, `ui-apply-*.log`, `ui-move-*.log`, `auto-apply-*.log`; `ui-run-*.log` / `web_ui.log` from the legacy web UI), `dry-run/` sidecars + `report.jsonl`, `rename-log.jsonl` (every rename / needs-review decision), `backups/`. |
+| `logs/` | `status.json`, `timings.json` (ETA averages), `pipeline.lock` (one run at a time), run logs (`clipgauge-run-*.log`, `ui-apply-*.log`, `ui-move-*.log`, `auto-apply-*.log`, `clipgauge-queue-*.log`), `dry-run/` sidecars + `report.jsonl`, `rename-log.jsonl` (every rename / needs-review decision), `backups/`. |
 | `notes/` | Central notes store: `notes/clips/<clip_id>.json`, one full record per processed clip or photo (always written); `notes/dry-run/` holds dry-run previews. See *Central notes store*. |
 | `exports/` | Transcript bundles (`transcripts-<scope>-<YYYYMMDD-HHMM>.json` + `.md`) from `build_transcript_bundle.py` / the UI button. Safe to delete old ones. |
 | `scripts/` | Pipeline code (Python). |
@@ -205,23 +205,38 @@ python3 scripts/undo_renames.py --dry-run                # preview undo of the l
 
 Search the catalogue: `grep -ril "unboxing" inbox/*.md logs/dry-run/` (or Spotlight on the `.md` files).
 
-## Legacy web UI (hidden in v0.6, removed in v0.7)
+## The queue (ClipGauge v0.8)
 
-Everything the web page did is now in **ClipGauge** (see below): adding clips (drag and drop, copy or process in
-place), Start/Stop, results with Undo and review, Move into folder, the transcript bundle, Sort into Projects and
-Instructions. ClipGauge talks to the engine directly (`scripts/clipgauge_cli.py`); nothing needs port 8765 any more.
-The web UI no longer starts automatically and has no buttons or menu items. The `Start/Stop Renamer UI.command`
-launchers were retired to `logs/backups/2026-10-08_pre-clipgauge-v06/`.
+Drop folders or clips on the ClipGauge window (or the menu bar icon). **Each folder becomes a project**; loose clips
+are grouped by the folder they came from. Every project has:
 
-For one more version it still runs from Terminal as a fallback (same engine, same locks and guards):
+- a **name** (from the folder, editable; optionally used as `{project}` in the new filenames),
+- a **mode**: *In place* (renamed where they are) or *Copy to inbox* (copied into `inbox/<name>/` first; originals
+  untouched; never overwrites),
+- a **Transcribe** switch (on by default; off skips Whisper for that project),
+- its own progress, results filter and **undo** (each run of a project is one batch in `logs/rename-log.jsonl`).
+
+One **Start queue** runs every waiting project in order. **Pause after this clip** stops cleanly between clips;
+**Stop** abandons the clip in progress. The queue lives in `logs/queue.json` and **resumes after a stop, quit, crash
+or sleep**: Start again continues with the first unfinished project, and clips already renamed are skipped.
+Reorder (Move Up / Down), pause, skip or remove any project from its ⋯ menu.
+
+Safety is unchanged: held (`hold_sources`), DaVinci Resolve-internal and Cloud-synced folders show **one refused
+row** each; clips inside the DaVinci Resolve folder need **one confirmation per queue**; nothing starts while Resolve
+is open, and the queue pauses before the next project if Resolve opens; dates are kept; nothing is overwritten.
 
 ```bash
-python3 scripts/web_ui.py --background   # start detached, then open http://127.0.0.1:8765
-python3 scripts/web_ui.py --status
-python3 scripts/web_ui.py --stop
+python3 scripts/project_queue.py add "/Volumes/Lexar/DaVinci Resolve/Some Project"   # add a project from Terminal
+python3 scripts/project_queue.py show                                               # the queue as JSON
+python3 scripts/clipgauge_cli.py queue-start '{"dry_run": true}'                    # run it (dry run)
 ```
 
-v0.7 deletes it (`scripts/web_ui.py`, its `ui` config keys and tests, and these notes).
+**Results** shows every clip by project and status, with Undo (clip, batch or whole project), the review editor, a
+transcript view per clip, and **search across every transcript**. **Tools ▾ › Transcript Bundle** builds the bundle
+for one project, the whole queue or everything; tick *Build transcript bundle when done* to build it automatically
+when the queue finishes.
+
+The legacy web UI (`scripts/web_ui.py`, port 8765, its `ui` config keys and launchers) was removed in v0.8.
 
 ## Transcript bundle (for script writing)
 
@@ -277,8 +292,6 @@ Read-only for media: the script only reads sidecars and writes the two export fi
 | `cleanup_processing_after_rename` | `true` (implicit) | delete the clip's `processing/` leftovers after a successful rename |
 | `sidecar.dry_run_dir` | `logs/dry-run` | sidecar folder while dry-run (also holds `report.jsonl`) |
 | `sidecar.protected_path_markers` | DaVinci Resolve paths | never write sidecars inside these |
-| `ui.host`, `ui.port` | `127.0.0.1`, `8765` | legacy web UI only (Terminal fallback in v0.6; removed in v0.7) |
-| `ui.poll_ms`, `ui.results_limit`, `ui.min_free_gb` | `2500`, `200`, `2` | status refresh, rows in the results table, free space kept on the Lexar when uploading |
 | `transcripts.exports_dir` | `exports` | where transcript bundles are written (optional key) |
 | `transcripts.search_roots` | `["DaVinci Resolve", "DaVinci Resolve Media", "Video Assets"]` | Lexar folders (relative to the drive root) searched by `--everywhere` and listed in the UI dropdown (optional key) |
 | `naming.*` | | `lowercase_ext`, slug max lengths, fallbacks, `take_suffix_max`, `strip_clip_type_words` (drop e.g. `-unboxing` from project/subject slugs) |
@@ -400,7 +413,7 @@ Guards and notices:
   - **Cancel** stops after the current chunk; **Resume** continues where it stopped.
 - **Updates and processing never overlap.**
   - Upgrades are refused while a processing run holds `logs/pipeline.lock` or DaVinci Resolve is open.
-  - While an upgrade holds `logs/updates.lock`, Start is disabled in ClipGauge (and the legacy web UI returns 409), and `run_pipeline.py` exits with code 5.
+  - While an upgrade holds `logs/updates.lock`, Start is disabled in ClipGauge, and `run_pipeline.py` exits with code 5.
 - **Weekly automatic check** is on by default. It only checks (no `brew update`, no downloads) and sends a notification if something is new.
 - **Files:**
   - Last check: `logs/updates-state.json`
@@ -480,7 +493,6 @@ python3 scripts/sort_projects.py --history
 #              "g4": {"merge_into": "Acme R3000"}}   (merge_into: null = new project)
 ```
 
-(Legacy, until v0.7: the web UI also has a **Sort into projects** card; its API is `GET /api/sort/sources`, `POST /api/sort/plan`, `POST /api/sort/apply` (needs `"confirm": true`), `POST /api/sort/undo` and `GET /api/sort/history`.)
 
 ### What's new in ClipGauge v0.5: custom instructions + a fixed update check
 
@@ -528,7 +540,7 @@ never as a failure. `python3 scripts/apply_updates.py --reverify` re-checks a fi
   `run_pipeline.py --source PATH [--confirm-resolve]`, `undo_renames.py --id LOG_ID [--json]`,
   `scripts/renamer_actions.py` (the shared non-HTTP code, moved out of `web_ui.py`). Unreadable clips now show
   ffprobe's own reason (e.g. *moov atom not found*).
-- **Web UI retired:** hidden (no auto-start, no buttons); Terminal fallback for one version, see *Legacy web UI*.
+- **Web UI retired:** hidden (no auto-start, no buttons); Terminal fallback for one version, removed in v0.8.
 
 ### What's new in ClipGauge v0.6.1: fixes + a Settings window
 
@@ -580,6 +592,17 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 - A folder moved or renamed during a run (or between runs) is found again by name and size instead of failing every
   clip left. No per-run cap.
 - A clip that already has a generated-looking name (e.g. hand-edited after a rename) isn't processed twice.
+
+### What's new in ClipGauge v0.8: a queue of projects and a simpler window
+
+- **Multi-project queue** (`logs/queue.json`): each folder is a project with its own name, mode (in place or copy to
+  inbox), Transcribe switch, progress and undo batch; reorder, pause, skip, remove; resumes after stop, quit or sleep;
+  one DaVinci Resolve confirmation per queue; refused rows for held or synced folders.
+- **Two views:** Queue and Results (by project, transcript view, transcript search). Transcript bundle, move into
+  folder, Sort into Projects, Instructions and Ask moved into **Tools ▾**; Settings, Setup and About under ⚙︎.
+- **Minimal popover:** warnings, the current project with progress, a queue summary, Pause / Resume, Open.
+- **Removed:** duplicate controls (per-tab Start buttons, popover shortcuts, app-menu duplicates) and the legacy web UI.
+- v0.7.6 fixes included: a folder moved during a run is found again; hand-edited names aren't processed twice.
 
 ## Credits & contact
 

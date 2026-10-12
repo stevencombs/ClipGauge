@@ -100,7 +100,7 @@ Today's builds are **ad-hoc signed**. Downloaded copies show the Gatekeeper warn
 - [ ] Remove the `/Volumes/Lexar` fallback, or keep it harmless (it's only tried if it exists)
 - [ ] `THIRD_PARTY_NOTICES.md` with the licenses above
 - [ ] Screenshots: main window (Add Clips, Results), Ask the Model, popover, Setup, About
-- [ ] v0.7: remove the hidden legacy web UI (`scripts/web_ui.py`, config `ui`) before the first public build
+- [x] v0.8: removed the legacy web UI (`scripts/web_ui.py`, config `ui`)
 - [ ] Developer ID signing + notarization + stapling, universal build
 - [ ] Test on a clean macOS user account: Setup → Create Project → Install Missing → Re-check → first dry run
 - [ ] Release notes plus the privacy statement

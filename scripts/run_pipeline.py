@@ -234,6 +234,8 @@ def unreadable_report(video: Path, reason: str, ctx: dict) -> dict:
     }
     if applied and action not in ("renamed", "needs-review"):
         report_line["action_reason"] = applied.get("reason")
+    if ctx.get("batch"):
+        report_line["batch"] = ctx["batch"]  # v0.8: Results group rows by queue project (dry runs too)
     rdir = abs_path(section(cfg, "sidecar").get("dry_run_dir") or "logs/dry-run")
     rdir.mkdir(parents=True, exist_ok=True)
     with open(rdir / "report.jsonl", "a", encoding="utf-8") as f:
@@ -491,6 +493,8 @@ def process_video(video: Path, idx: int, total: int, queue_after: list, ctx: dic
         report_line["project_source"] = "folder"
     if applied and action not in ("renamed", "needs-review"):
         report_line["action_reason"] = applied.get("reason")
+    if ctx.get("batch"):
+        report_line["batch"] = ctx["batch"]  # v0.8: Results group rows by queue project (dry runs too)
     rdir = abs_path(section(cfg, "sidecar").get("dry_run_dir") or "logs/dry-run")
     rdir.mkdir(parents=True, exist_ok=True)
     with open(rdir / "report.jsonl", "a", encoding="utf-8") as f:
@@ -523,6 +527,10 @@ def process_video(video: Path, idx: int, total: int, queue_after: list, ctx: dic
     return report_line
 
 
+PAUSE_FLAG = "queue-pause.flag"   # logs/<this>: the queue asked to pause after the current clip
+PAUSED_RC = 4
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="AI Video Renamer pipeline (renames in place in inbox/ only when config dry_run is false)")
     ap.add_argument("--video", type=Path, action="append", default=None,
@@ -547,6 +555,10 @@ def main() -> int:
                     help="Process in place (ClipGauge v0.6): media at PATH (a file, or a folder walked recursively; "
                          "repeatable) is renamed where it is, no copy into inbox/. Held / Resolve-internal / "
                          "Cloud-synced / cloud-drive folders are refused (scripts/inplace.py)")
+    ap.add_argument("--batch-id", default=None, metavar="ID",
+                    help="Use this rename-log batch id (ClipGauge v0.8 queue: one undoable batch per project)")
+    ap.add_argument("--project", default=None, metavar="NAME",
+                    help="Use the slugified NAME as {project} in every new filename (queue project name; in place too)")
     ap.add_argument("--resume", action="store_true",
                     help="Resume the last interrupted in-place run (logs/inplace-run.json): same sources, finished "
                          "clips are skipped; folders moved since are found again by name")
@@ -566,7 +578,7 @@ def main() -> int:
         print(f"Model/tool updates are being installed (pid {upd.get('pid')}, started {upd.get('started_at')}) — "
               "processing can start when they finish (ClipGauge › Setup › Updates).", file=sys.stderr)
         return 5
-    # Single-run lock (Terminal vs web UI share status.json): refuse before touching status.json.
+    # Single-run lock (Terminal vs ClipGauge share status.json): refuse before touching status.json.
     lock = lock_path()
     ok, holder = acquire_lock(lock)
     if not ok:
@@ -676,6 +688,10 @@ def run(args: argparse.Namespace) -> int:
         write_status({"state": "error", "step": "init", "message": msg, "last_error": msg})
         print(msg, file=sys.stderr)
         return 2
+    if getattr(args, "project", None) and not project_slug:
+        project_slug = folder_project_slug(args.project, cfg) or None
+        if project_slug:
+            print(f"Project in filenames: {project_slug}")
     if folder:
         print(f"Batch folder: inbox/{folder}/ — confident clips are renamed into it"
               + (" (dry run: nothing is moved)" if dry else "; needs-review clips stay in inbox/")
@@ -788,7 +804,7 @@ def run(args: argparse.Namespace) -> int:
         "tier_info": tier_info,
         "eta": EtaModel(abs_path(cfg.get("logs_dir") or "logs") / "timings.json"),
         "proposed": set(),
-        "batch": new_batch_id("pipeline"),
+        "batch": (getattr(args, "batch_id", None) or new_batch_id("pipeline")),
         "folder": folder,
         "project_slug": project_slug,
         "in_place": in_place,
@@ -803,7 +819,15 @@ def run(args: argparse.Namespace) -> int:
         except OSError:
             pass
     moved_cache: dict = {}
+    pause_flag = abs_path(cfg.get("logs_dir") or "logs") / PAUSE_FLAG
     for i, v in enumerate(videos, start=1):
+        if i > 1 and pause_flag.exists():
+            # v0.8 queue "Pause after this clip": stop cleanly between clips; Start resumes (finished clips skipped).
+            msg = f"Paused after clip {i - 1} of {len(videos)} — Start resumes the queue."
+            write_status({"state": "paused", "step": "paused", "queue": [str(x) for x in videos[i - 1:]],
+                          "message": msg, "eta": None, "eta_seconds": None})
+            print("\n" + msg)
+            return PAUSED_RC
         orig = v
         if in_place and not v.is_file():
             # The folder was moved or renamed during the run: find the clip again instead of failing every clip left.

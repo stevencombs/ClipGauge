@@ -85,13 +85,6 @@
     ],
     "write_next_to_clip": false
   },
-  "ui": {
-    "host": "127.0.0.1",
-    "port": 8765,
-    "poll_ms": 2500,
-    "results_limit": 200,
-    "min_free_gb": 2
-  },
   "notes_store": {
     "dir": "notes"
   }

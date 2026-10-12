@@ -2,7 +2,7 @@
 """
 Custom instructions for the vision model and Whisper (ClipGauge v0.5).
 
-Stored in config/custom-instructions.json (written by ClipGauge › Instructions…, the web UI, or this script):
+Stored in config/custom-instructions.json (written by ClipGauge › Instructions…, or this script):
 
   standing   multi-line guidance added to the describe/naming prompt of EVERY clip and photo
              (project context, preferred subject names, spellings: "call the router Acme R3000")

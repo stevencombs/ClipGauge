@@ -17,10 +17,13 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 14) {
             header
                 .padding(.top, 8)   // v0.6.1: the title row sat too close to the popover's top edge
+            // v0.8: a minimal popover — warnings, the queue (status + current project), last-run problem.
+            // Everything else lives in the ClipGauge window (Queue / Results / Tools ▾) and Settings.
             VStack(alignment: .leading, spacing: 12) {
-                // Drive / Resolve warnings always lead, whatever the layout says.
-                if !layout.settings.isVisible(.alerts) || layout.settings.visibleSections.first != .alerts { criticalAlerts }
-                ForEach(layout.settings.visibleSections) { section($0) }
+                criticalAlerts
+                if model.lexarOK { QueueCard(model: model) }
+                lastRunProblem
+                if model.lexarOK && model.updates.jobActive { UpdatesCard(model: model, updates: model.updates) }
             }
             Divider()
             footer
@@ -59,14 +62,7 @@ struct PopoverView: View {
                 .background(.fill.tertiary, in: Capsule())
             Menu {
                 Button("Open \(kAppName)…") { model.showMain() }
-                Button("Ask the Model…") { model.showChat(nil) }
-                Divider()
                 Button("Settings…") { model.showSettings() }
-                Button("Setup…") { model.showSetup() }
-                Button("Model & Tool Updates…") { model.showUpdates() }
-                Button("Sort into Projects…") { model.showSort() }
-                Button("Instructions…") { model.showInstructions() }
-                Button("About \(kAppName)") { model.showAbout() }
                 Divider()
                 Button("Quit \(kAppName)") { NSApp.terminate(nil) }
             } label: {
@@ -75,8 +71,8 @@ struct PopoverView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("Settings (⌘,), Setup and About")
-            .accessibilityLabel("Settings, Setup and About")
+            .help("Open \(kAppName), Settings (⌘,) and Quit")
+            .accessibilityLabel("Open, Settings and Quit")
         }
     }
 

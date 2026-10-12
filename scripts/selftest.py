@@ -27,7 +27,7 @@ from _common import load_config, load_ram_tiers, slugify  # noqa: E402
 from propose_name import propose_filename  # noqa: E402
 from run_pipeline import VIDEO_EXTS, EtaModel, is_inbox_video, review_decision  # noqa: E402
 import pipeline_lock as pl  # noqa: E402
-import web_ui as ui  # noqa: E402  (legacy HTTP layer)
+import renamer_actions as ui  # noqa: E402  (v0.8: the web UI is gone; these are the shared actions)
 import renamer_actions as ra  # noqa: E402  (shared actions; patch here, not on ui)
 import build_transcript_bundle as tb  # noqa: E402
 import notes_store as ns  # noqa: E402
@@ -414,11 +414,6 @@ class TestWebUi(unittest.TestCase):
         code, _ = ui.sidecar_md(CFG, str(ui.dry_run_dir(CFG) / ".." / ".." / "config" / "config.json"))
         self.assertEqual(code, 403)
 
-    def test_ui_config(self):
-        u = ui.ui_cfg(CFG)
-        self.assertEqual(u["host"], "127.0.0.1")
-        self.assertEqual(u["port"], 8765)
-        self.assertEqual(ui.ui_cfg(dict(CFG, ui={"host": "0.0.0.0"}))["host"], "127.0.0.1")
 
 
 # ----------------------------------------------------------------- apply / undo / skip (temp dirs only) ----
@@ -1890,8 +1885,6 @@ class TestPhotos(ApplyBase):
         self.assertFalse(b2["scope"]["include_photos"])
         res = tb.run(self.cfg, dry_run=True, include_photos=False)
         self.assertEqual(res["counts"]["clips_scanned"], 1)
-        self.assertIn("tbNoPhotos", ui.PAGE)
-        self.assertIn("image/*", ui.PAGE)
 
 
 class TestResolveGuard(unittest.TestCase):
@@ -2178,7 +2171,7 @@ class TestInstructions(ApplyBase):
             self.assertIsNone(p3["instructions"])
             self.assertNotEqual(p3["groups"][0]["project"], "Retro Game Expo")
 
-    def test_web_ui_endpoints(self):
+    def test_instruction_actions(self):
         cfg = dict(self.cfg)
         code, j = ui.save_instructions(cfg, {"standing": "x" * 2001})
         self.assertEqual(code, 400)
@@ -2194,8 +2187,6 @@ class TestInstructions(ApplyBase):
         self.assertIsNone(pv["whisper_prompt"])
         self.assertEqual(ins.load(cfg)["standing"], "Call it GL.iNet BE3600.")   # preview never saves
         self.assertEqual(ui.preview_instructions(cfg, {"glossary": ["y" * 50]})[0], 400)
-        for needle in ('id="insCard"', 'id="insPrevBtn"', 'id="sIns"', "/api/instructions/preview"):
-            self.assertIn(needle, ui.PAGE)
 
 
 class TestUpdates(unittest.TestCase):
@@ -3060,11 +3051,11 @@ class TestClipGaugeV06(ApplyBase):
         self.assertTrue((self.inbox / "20261007_retro_cam-test_broll.MP4").is_file())  # extension kept
         self.assertEqual(self.log_lines()[-1]["origin"], "clipgauge-review")
 
-    def test_web_ui_is_a_thin_legacy_layer(self):
-        self.assertIs(ui.start_pipeline, ra.start_pipeline)
-        self.assertIs(ui.read_results, ra.read_results)
-        src = (Path(ra.__file__).read_text(encoding="utf-8"))
-        self.assertNotIn("BaseHTTPRequestHandler)", src)
+    def test_web_ui_removed(self):
+        self.assertFalse((Path(ra.__file__).parent / "web_ui.py").exists())
+        src = Path(ra.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("BaseHTTPRequestHandler", src)
+        self.assertNotIn("def ui_cfg", src)
         cg_src = (Path(ra.__file__).parent / "clipgauge_cli.py").read_text(encoding="utf-8")
         self.assertNotIn("8765", cg_src)
         self.assertNotIn("urllib.request", cg_src)
@@ -3141,6 +3132,162 @@ class TestRunQueue(unittest.TestCase):
     def test_no_run_cap(self):
         import inplace
         self.assertGreaterEqual(inplace.MAX_FILES, 1000)
+
+
+class TestProjectQueue(unittest.TestCase):
+    """v0.8: multi-project queue (logs/queue.json): grouping, refused rows, edits, commands, resume, transcripts."""
+
+    def setUp(self):
+        import tempfile
+        import project_queue as pq
+        self.pq = pq
+        self.tmp = Path(tempfile.mkdtemp())
+        self.cfg = dict(CFG, logs_dir=str(self.tmp / "logs"), inbox_dir=str(self.tmp / "inbox"),
+                        notes_dir=str(self.tmp / "notes"))
+        self.res = self.tmp / "DaVinci Resolve"
+        for d in ("Ranch Tour", "Held Project", "Loose"):
+            (self.res / d).mkdir(parents=True)
+        for n in ("a.mp4", "b.mov"):
+            (self.res / "Ranch Tour" / n).write_bytes(b"x" * 10)
+        (self.res / "Held Project" / "c.mp4").write_bytes(b"x")
+        for n in ("d.mp4", "e.mp4"):
+            (self.res / "Loose" / n).write_bytes(b"x")
+        sc = {"hold_sources": ["Held Project"], "protected_dirs": ["CacheClip"], "sync_marker": ".syncprojectinfo.json",
+              "resolve_root": str(self.res)}
+        self.p = mock.patch("inplace.sort_cfg", return_value=sc)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def add(self, *paths, mode=None):
+        return self.pq.add(self.cfg, [str(x) for x in paths], mode)["added"]
+
+    def test_grouping_and_refused_rows(self):
+        a = self.add(self.res / "Ranch Tour", self.res / "Held Project", self.res / "Loose" / "d.mp4",
+                     self.res / "Loose" / "e.mp4")
+        names = [(i["name"], i["status"]) for i in a]
+        self.assertEqual(names, [("Ranch Tour", "waiting"), ("Held Project", "refused"), ("Loose", "waiting")])
+        self.assertIn("on hold", a[1]["reason"])
+        self.assertEqual(a[0]["media_count"], 2)
+        self.assertEqual(len(a[2]["paths"]), 2)                       # loose files -> one project per folder
+        self.assertEqual(self.add(self.res / "Ranch Tour"), [])       # same folder twice: not added again
+        q = self.pq.summary(self.cfg)
+        self.assertEqual((q["left"], q["clips_left"]), (2, 4))
+
+    def test_edit_move_skip_remove_clear(self):
+        a = self.add(self.res / "Ranch Tour", self.res / "Loose")
+        pq, cfg = self.pq, self.cfg
+        pq.update(cfg, a[0]["id"], {"name": "  Ranch   Day 1 ", "transcribe": False, "mode": "copy"})
+        it = pq.read(cfg)["items"][0]
+        self.assertEqual((it["name"], it["transcribe"], it["mode"]), ("Ranch Day 1", False, "copy"))
+        with self.assertRaises(ValueError):
+            pq.update(cfg, a[0]["id"], {"name": "  "})
+        pq.update(cfg, a[1]["id"], {"paused": True})
+        self.assertEqual(pq.read(cfg)["items"][1]["status"], "paused")
+        pq.move(cfg, a[1]["id"], 0)
+        self.assertEqual([i["id"] for i in pq.read(cfg)["items"]], [a[1]["id"], a[0]["id"]])
+        pq.skip(cfg, a[0]["id"])
+        self.assertEqual(pq.read(cfg)["items"][1]["status"], "skipped")
+        self.assertEqual(pq.clear(cfg), 1)                              # finished (skipped) ones only
+        pq.remove(cfg, a[1]["id"])
+        self.assertEqual(pq.read(cfg)["items"], [])
+
+    def test_held_folder_is_not_copied_either(self):
+        a = self.add(self.res / "Held Project")
+        with self.assertRaises(ValueError):
+            self.pq.update(self.cfg, a[0]["id"], {"mode": "copy"})
+
+    def test_pipeline_command_per_project(self):
+        a = self.add(self.res / "Ranch Tour")[0]
+        q = self.pq.read(self.cfg)
+        q["confirm_resolve"] = True
+        a.update(needs_confirm=True, transcribe=False, name_in_filenames=True)
+        cmd = self.pq._pipeline_cmd(self.cfg, q, a, "B1")
+        self.assertEqual(cmd[cmd.index("--batch-id") + 1], "B1")
+        self.assertIn("--skip-whisper", cmd)
+        self.assertIn("--confirm-resolve", cmd)
+        self.assertEqual(cmd[cmd.index("--project") + 1], "Ranch Tour")
+        self.assertEqual(cmd[cmd.index("--source") + 1], str(self.res / "Ranch Tour"))
+        c = dict(a, mode="copy", copied=[str(self.res / "Ranch Tour" / "a.mp4"), str(self.tmp / "gone.mp4")])
+        cmd = self.pq._pipeline_cmd(self.cfg, q, c, "B2")
+        self.assertEqual(cmd.count("--video"), 1)                     # files already moved away are left out
+        self.assertEqual(cmd[cmd.index("--folder") + 1], "Ranch Tour")
+        self.assertIsNone(self.pq._pipeline_cmd(self.cfg, q, dict(c, copied=[]), "B3"))
+
+    def test_resume_after_quit_or_sleep(self):
+        self.add(self.res / "Ranch Tour")
+        with self.pq.locked(self.cfg) as d:
+            d["state"], d["pid"] = "running", 999999                     # the runner died (quit / crash / sleep)
+            d["items"][0]["status"] = "running"
+        q = self.pq.summary(self.cfg)
+        self.assertEqual((q["state"], q.get("interrupted"), q["left"]), ("stopped", True, 1))
+
+    def test_start_needs_one_resolve_confirmation(self):
+        a = self.add(self.res / "Ranch Tour")[0]
+        with self.pq.locked(self.cfg) as d:
+            d["items"][0]["needs_confirm"] = True
+        cfg = dict(self.cfg, dry_run=False)
+        with mock.patch("renamer_actions.run_info", return_value={"active": False}), \
+                mock.patch("renamer_actions.active_updates", return_value=None), \
+                mock.patch("check_resolve.resolve_running", return_value=[]):
+            code, j = self.pq.start(cfg, {})
+            self.assertEqual(code, 409)
+            self.assertEqual(j["needs_confirm"], [a["name"]])
+        with mock.patch("renamer_actions.run_info", return_value={"active": False}), \
+                mock.patch("renamer_actions.active_updates", return_value=None), \
+                mock.patch("check_resolve.resolve_running", return_value=["DaVinci Resolve"]):
+            self.assertEqual(self.pq.start(cfg, {"confirm_resolve": True})[0], 409)   # never while Resolve is open
+
+    def test_pause_flag_matches_pipeline(self):
+        import run_pipeline as rp
+        self.assertEqual(rp.PAUSE_FLAG, self.pq.PAUSE_FLAG)
+        self.assertEqual(rp.PAUSED_RC, 4)
+
+    def _fake_run(self, rc: int):
+        """Run the real queue runner with a stand-in for run_pipeline.py that exits with rc."""
+        code = f"import sys; sys.exit({rc})"
+        with mock.patch.object(self.pq, "_pipeline_cmd", return_value=[sys.executable, "-c", code]), \
+                mock.patch("check_resolve.resolve_running", return_value=[]), \
+                mock.patch.object(self.pq, "load_config", return_value=self.cfg), \
+                mock.patch.object(self.pq, "_status", return_value={"message": "Selected x (1/2)"}), \
+                mock.patch("time.sleep"):
+            return self.pq.run()
+
+    def test_runner_finishes_projects_in_order(self):
+        self.add(self.res / "Ranch Tour", self.res / "Loose")
+        self.assertEqual(self._fake_run(0), 0)
+        q = self.pq.read(self.cfg)
+        self.assertEqual([i["status"] for i in q["items"]], ["done", "done"])
+        self.assertEqual(q["state"], "done")
+        self.assertTrue(all(len(i["batches"]) == 1 and i["id"] in i["batches"][0] for i in q["items"]))
+
+    def test_runner_pause_keeps_project_waiting(self):
+        self.add(self.res / "Ranch Tour", self.res / "Loose")
+        self._fake_run(4)                                   # run_pipeline paused after a clip
+        q = self.pq.read(self.cfg)
+        self.assertEqual((q["state"], q["items"][0]["status"], q["items"][1]["status"]), ("paused", "waiting", "waiting"))
+
+    def test_runner_pauses_when_resolve_opens(self):
+        self.add(self.res / "Ranch Tour")
+        with mock.patch("check_resolve.resolve_running", return_value=["DaVinci Resolve"]), \
+                mock.patch.object(self.pq, "load_config", return_value=self.cfg):
+            self.pq.run()
+        q = self.pq.read(self.cfg)
+        self.assertEqual((q["state"], q["items"][0]["status"]), ("paused", "waiting"))
+        self.assertIn("Resolve", q["message"])
+
+    def test_transcript_search(self):
+        recs = [{"clip_id": "cam-1-aaaaaaaa", "current_path": "/x/20261010_ranch_guide_talking-head.mp4",
+                 "transcript": {"segments": [{"start": 1.0, "end": 2.5, "text": " Welcome to the  ranch tour "},
+                                             {"start": 3.0, "end": 4.0, "text": "Horses are this way"}]}},
+                {"clip_id": "cam-2-bbbbbbbb", "current_path": "/x/b.mp4", "transcript": {"segments": []}}]
+        with mock.patch("notes_store.load_all", return_value=recs):
+            h = self.pq.search_transcripts(self.cfg, "RANCH tour")["hits"]
+        self.assertEqual(len(h), 1)
+        self.assertEqual((h[0]["file"], h[0]["start"]), ("20261010_ranch_guide_talking-head.mp4", 1.0))
+        self.assertEqual(self.pq.search_transcripts(self.cfg, "  ")["hits"], [])
 
 
 class TestFileDates(unittest.TestCase):

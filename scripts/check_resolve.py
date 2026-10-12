@@ -21,7 +21,7 @@ RESOLVE_NAMES = (
 
 
 def _own_chain() -> set[int]:
-    """This process and its ancestors (caffeinate, the shell, the web UI that launched us…)."""
+    """This process and its ancestors (caffeinate, the shell, ClipGauge that launched us…)."""
     own, pid = set(), os.getpid()
     for _ in range(32):
         if pid <= 1 or pid in own:

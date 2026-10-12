@@ -658,7 +658,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .layout: return "Layout"
+        case .layout: return "General"
         case .menuBar: return "Menu Bar"
         case .colors: return "Colors & Alerts"
         case .sync: return "Sync"
@@ -766,23 +766,23 @@ struct SettingsView: View {
 
     private var layoutTab: some View {
         Group {
-            PrefGroup(title: "Popover sections",
-                      footer: "Drag rows (or use the arrows) to reorder. Unchecked sections are hidden. Changes apply right away. "
-                        + "“Drive not connected” and “Resolve is open” warnings always show at the top, even with Alerts hidden.") {
-                ReorderList(items: settings.sections, title: \.title, icon: \.symbol, note: { s in
-                    switch s {
-                    case .currentRun: return model.runActive ? nil : "(only during a run)"
-                    case .alerts: return model.problemVisible ? "(showing now)" : nil
-                    default: return nil
-                    }
-                })
+            PrefGroup(title: "Popover",
+                      footer: "v0.8: the popover is a short status — drive and Resolve warnings, the queue (current project, "
+                        + "progress, Pause / Resume) and the last-run problem. Everything else is in the \(kAppName) window: "
+                        + "Queue, Results and the Tools menu.") {
+                PrefRow(label: "Open the \(kAppName) window", detail: "Queue, Results, Tools ▾") {
+                    Button("Open") { model.showMain() }
+                }
             }
-            PrefGroup(title: "Action buttons", footer: "The row of capsule buttons. At least one stays visible while the section is shown.") {
-                ReorderList(items: settings.actions, title: \.title, icon: \.symbol)
-            }
-            HStack {
-                Spacer()
-                Button("Reset Layout to Default") { store.resetLayout() }
+            PrefGroup(title: "Queue",
+                      footer: "Each dropped folder becomes a project with its own mode (in place or copy to inbox) and a "
+                        + "Transcribe switch. The queue is saved in logs/queue.json and resumes after a stop, quit or sleep.") {
+                PrefRow(label: "Build a transcript bundle when the queue finishes",
+                        detail: "Whole queue; also in the Queue footer") {
+                    Toggle("", isOn: Binding(get: { model.queue.autoBundle },
+                                             set: { model.queueOptions(["auto_bundle": $0]) }))
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }

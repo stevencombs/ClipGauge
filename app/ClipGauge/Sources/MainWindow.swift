@@ -1,240 +1,85 @@
-// ClipGauge main window (v0.6): the all-in-one app that replaced the web UI.
-//   Add Clips — drop files/folders (here or on the menu bar icon) or Choose…; copy into the inbox (progress, never
-//               overwrites) or process in place (guards: held / Resolve-internal / Cloud-synced folders refused,
-//               DaVinci Resolve folder only after confirmation).
-//   Results  — old → new name, type, confidence, status; reveal in Finder; per-row / per-batch Undo; needs-review
-//               filter and a review editor (accept or edit the proposed name — logged and undoable).
-//   Tools    — move renamed clips into a folder, transcript bundle (exports/), Sort into Projects, Instructions.
+// ClipGauge main window (v0.8): two views and a toolbar.
+//   Queue    — drop folders or clips: each folder becomes a project (name editable, mode in place / copy to inbox,
+//              Transcribe switch). One Start / Pause / Stop for the whole queue; reorder, pause, skip, remove.
+//              Held or synced folders show one refused row. The queue lives in logs/queue.json and resumes after a
+//              stop, quit or sleep (scripts/project_queue.py).
+//   Results  — old → new name by project and status; reveal, undo (row, batch or whole project), review editor,
+//              transcript view and search across every transcript.
+//   Tools ▾  — transcript bundle (project / queue / everything), move renamed clips into a folder, Sort into
+//              Projects, Instructions, Ask the Model, open inbox, clear the queue. ⚙︎ — Settings, Setup, About.
 // Every action goes through scripts/clipgauge_cli.py (same locks and guards as the engine); nothing here renames.
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum MainTab: String, CaseIterable { case add = "Add Clips", results = "Results", tools = "Tools" }
-enum AddMode: String, CaseIterable { case copy = "Copy into inbox", inPlace = "Process in place" }
+enum MainTab: String, CaseIterable { case queue = "Queue", results = "Results" }
 enum ResultFilter: String, CaseIterable { case all = "All", review = "Needs review", renamed = "Renamed", other = "Skipped / dry run" }
-
-struct QueuedItem: Identifiable {
-    let id = UUID()
-    let url: URL
-    var check: [String: Any]? = nil
-    var status: String { (check?["status"] as? String) ?? "checking" }
-    var reason: String { (check?["reason"] as? String) ?? "" }
-    var mediaCount: Int { intVal(check?["media_count"]) ?? 0 }
-    var copyCount: Int { intVal(check?["copy_count"]) ?? 0 }
-    var bytes: Int64 { (check?["bytes"] as? NSNumber)?.int64Value ?? 0 }
-    var needsConfirm: Bool { (check?["needs_confirm"] as? Bool) ?? false }
-    var copyOK: Bool { (check?["copy_ok"] as? Bool) ?? true }
-    var isDir: Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-}
-
-struct ResultRow: Identifiable {
-    let id: String
-    let d: [String: Any]
-    init(_ d: [String: Any]) {
-        self.d = d
-        id = (d["source"] as? String ?? UUID().uuidString) + "|" + (d["time"] as? String ?? "")
-    }
-    var name: String { d["name"] as? String ?? "?" }
-    var source: String { d["source"] as? String ?? "" }
-    var current: String { d["current"] as? String ?? source }
-    var proposed: String? { d["proposed"] as? String }
-    var clipType: String { d["clip_type"] as? String ?? "—" }
-    var confidence: Double? { (d["confidence"] as? NSNumber)?.doubleValue }
-    var status: String { d["status"] as? String ?? "skipped" }
-    var logID: String? { d["log_id"] as? String }
-    var batch: String? { d["batch"] as? String }
-    var reasons: [String] { d["review_reasons"] as? [String] ?? [] }
-    var newName: String {
-        if status == "renamed" { return (current as NSString).lastPathComponent }
-        return proposed ?? "—"
-    }
-    var time: Date? { (d["time"] as? String).flatMap { isoParser.date(from: $0) } }
-    var inResolve: Bool { current.contains("/DaVinci Resolve/") || current.contains("/DaVinci Resolve Media/") }
-}
+enum BundleScope: String, CaseIterable { case project = "One project", queue = "Whole queue", everything = "Everything" }
 
 final class MainModel: ObservableObject {
     weak var renamer: RenamerModel?
-    @Published var tab: MainTab = .add
-    @Published var queue: [QueuedItem] = []
-    @Published var mode: AddMode = .copy
-    @Published var folderName = ""
-    @Published var folderAsProject = false
-    @Published var startAfterCopy = true
-    @Published var dryRunOnly = false
-    @Published var copying = false
-    @Published var copyFraction = 0.0
-    @Published var copyLine = ""
+    @Published var tab: MainTab = .queue
     @Published var lastMessage: String?
     @Published var rows: [ResultRow] = []
     @Published var filter: ResultFilter = .all
+    @Published var project = ""                 // "" = all projects
     @Published var loadingResults = false
     @Published var editing: ResultRow?
     @Published var editName = ""
     @Published var busy: String?
-    @Published var moveFolder = ""
-    @Published var scopes: [[String: Any]] = []
-    @Published var scope = "inbox"
+    @Published var search = ""
+    @Published var hits: [[String: Any]] = []
+    @Published var searching = false
+    @Published var transcript: [String: Any]?   // sheet
+    @Published var showBundle = false
+    @Published var bundleScope: BundleScope = .queue
+    @Published var bundleProject = ""
     @Published var includeSilent = false
-    @Published var excludePhotos = false
-    @Published var bundle: [String: Any]?
-    @Published var exports: [[String: Any]] = []
-    @Published var exportsDir: String?
+    @Published var bundleMessage: String?
+    @Published var showMove = false
+    @Published var moveFolder = ""
+    @Published var queueDry = false
     @Published var exampleData = false
-    private var copyProc: Process?
+    @Published var exampleQueue: QueueState? = nil   // previews only (EXAMPLE DATA)
 
     init(renamer: RenamerModel) { self.renamer = renamer }
 
-    // MARK: add clips
+    var queue: QueueState { exampleQueue ?? renamer?.queue ?? QueueState() }
 
     func add(_ urls: [URL]) {
-        let fresh = urls.map { $0.standardizedFileURL }.filter { u in !queue.contains { $0.url == u } }
-        guard !fresh.isEmpty else { return }
-        queue += fresh.map { QueuedItem(url: $0) }
-        tab = .add
-        if folderName.isEmpty, fresh.count == 1, let f = fresh.first,
-           (try? f.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            folderName = f.lastPathComponent
-        }
-        recheck()
+        guard !urls.isEmpty else { return }
+        tab = .queue
+        renamer?.queueAdd(urls)
     }
-
-    func recheck() {
-        guard let r = renamer, !queue.isEmpty else { return }
-        let paths = queue.map { $0.url.path }
-        r.engine(["check-path"] + paths) { j in
-            let items = (j["items"] as? [[String: Any]]) ?? []
-            // Match answers by the path that was asked (the queue may have changed meanwhile). Anything the
-            // engine didn't answer becomes an explicit error row, never an endless spinner.
-            var byPath: [String: [String: Any]] = [:]
-            for (p, it) in zip(paths, items) { byPath[p] = it }
-            let why = (j["error"] as? String) ?? RenamerModel.errorText(j)
-            for i in self.queue.indices where paths.contains(self.queue[i].url.path) {
-                let p = self.queue[i].url.path
-                self.queue[i].check = byPath[p]
-                    ?? ["status": "error", "reason": why.isEmpty ? "Couldn't check this item" : why, "copy_ok": false]
-            }
-            if let e = j["error"] as? String { self.lastMessage = e }
-        }
-    }
-
-    func remove(_ item: QueuedItem) { queue.removeAll { $0.id == item.id } }
-    func clear() { queue.removeAll(); lastMessage = nil }
-    /// Clear plus the batch options (folder name, project-from-folder, dry run).
-    func startOver() {
-        guard !copying else { return }
-        queue.removeAll(); lastMessage = nil
-        folderName = ""; folderAsProject = false; dryRunOnly = false
-    }
-    /// Refused and error items are never kept: dropped when the window closes or reopens.
-    /// (The queue lives only in memory, so nothing is restored after a relaunch.)
-    func pruneInvalid() {
-        guard !copying, !exampleData else { return }
-        queue.removeAll { $0.status == "refused" || $0.status == "error" }
-    }
-
-    /// The held folder named in an "on hold" refusal (“Held Project” …), or nil.
-    static func heldName(_ item: QueuedItem) -> String? {
-        guard item.status == "refused", item.reason.contains("on hold") else { return nil }
-        let r = item.reason
-        if let a = r.firstIndex(of: "“"), let b = r[a...].firstIndex(of: "”") { return String(r[r.index(after: a)..<b]) }
-        return item.url.lastPathComponent
-    }
-    /// Held items collapse into ONE summary row per held folder, however many clips were dropped.
-    var heldGroups: [(name: String, count: Int)] {
-        var order: [String] = [], counts: [String: Int] = [:]
-        for it in queue { if let n = MainModel.heldName(it) { if counts[n] == nil { order.append(n) }; counts[n, default: 0] += 1 } }
-        return order.map { ($0, counts[$0]!) }
-    }
-    var listedItems: [QueuedItem] { queue.filter { MainModel.heldName($0) == nil } }
-    func removeHeld(_ name: String) { queue.removeAll { MainModel.heldName($0) == name } }
-    var isChecking: Bool { queue.contains { $0.status == "checking" } }
 
     func choose() {
         let p = NSOpenPanel()
         p.canChooseFiles = true
         p.canChooseDirectories = true
         p.allowsMultipleSelection = true
-        p.message = "Choose clips or folders of clips (videos and photos)."
-        p.prompt = "Add"
+        p.message = "Choose folders (one project each) or clips."
+        p.prompt = "Add to Queue"
         NSApp.activate(ignoringOtherApps: true)
         if p.runModal() == .OK { add(p.urls) }
     }
 
-    var usable: [QueuedItem] {
-        mode == .copy ? queue.filter { $0.copyOK && $0.copyCount > 0 }
-                      : queue.filter { $0.status != "refused" && $0.status != "checking" && $0.mediaCount > 0 }
-    }
-    var clipCount: Int { usable.reduce(0) { $0 + (mode == .copy ? $1.copyCount : $1.mediaCount) } }
-    var needsConfirm: Bool { mode == .inPlace && usable.contains { $0.needsConfirm } }
-
-    func go() {
-        guard let r = renamer, !usable.isEmpty else { return }
-        if mode == .copy { copyIn(r) } else { processInPlace(r) }
-    }
-
-    private func copyIn(_ r: RenamerModel) {
-        copying = true; copyFraction = 0; copyLine = "Starting copy…"; lastMessage = nil
-        let paths = usable.map { $0.url.path }
-        copyProc = r.engineStream(["copy-in"] + paths, line: { j in
-            switch j["event"] as? String {
-            case "start":
-                self.copyLine = "Copying \(intVal(j["files"]) ?? 0) file(s), \(byteString(Int64(intVal(j["total_bytes"]) ?? 0)))…"
-            case "progress", "file":
-                let done = Double(intVal(j["done_bytes"]) ?? 0), tot = Double(max(1, intVal(j["total_bytes"]) ?? 1))
-                self.copyFraction = done / tot
-                let saved = (j["saved_as"] as? String).map { " → \($0)" } ?? ""
-                self.copyLine = "\(intVal(j["index"]) ?? 0) of \(intVal(j["files"]) ?? 0): \(j["file"] as? String ?? "")\(saved)"
-            case "done":
-                let copied = (j["copied"] as? [[String: Any]])?.count ?? 0
-                let skipped = (j["skipped"] as? [String]) ?? []
-                var msg = (j["message"] as? String) ?? (j["error"] as? String) ?? "Copy finished."
-                if let e = j["error"] as? String { msg = e }
-                if !skipped.isEmpty { msg += "\n" + skipped.prefix(6).joined(separator: "\n") + (skipped.count > 6 ? "\n…" : "") }
-                self.lastMessage = msg
-                self.copyFraction = 1
-                if (j["ok"] as? Bool) == true {
-                    self.queue.removeAll { item in self.usable.contains { $0.id == item.id } }
-                    r.refreshInbox(force: true)
-                    if self.startAfterCopy && copied > 0 { self.startInbox(r) }
-                }
-            default: break
-            }
-        }, done: { _ in
-            self.copying = false
-            self.copyProc = nil
-        })
-    }
-
-    func cancelCopy() { copyProc?.terminate() }
-
-    private func startInbox(_ r: RenamerModel) {
-        r.engine(["inbox"]) { inbox in
-            let pending = intVal(inbox["pending_count"]) ?? 0
-            guard pending > 0 else { return }
-            let f = self.folderName.trimmingCharacters(in: .whitespaces)
-            r.startRun(RunOptions(dry: self.dryRunOnly, folder: f.isEmpty ? nil : f, projectFromFolder: self.folderAsProject),
-                       pending: pending)
-        }
-    }
-
-    private func processInPlace(_ r: RenamerModel) {
-        var o = RunOptions(dry: dryRunOnly, sources: usable.map { $0.url.path })
-        if needsConfirm && !(dryRunOnly || r.dryRun) {
-            guard r.confirmResolveRename() else { return }
-            o.confirmResolve = true
-        }
-        r.startRun(o, pending: clipCount, confirmed: false)
-    }
-
     // MARK: results
 
+    var projectByBatch: [String: String] { queue.projectByBatch }
+    func projectName(_ row: ResultRow) -> String? { row.batch.flatMap { projectByBatch[$0] } }
+    var projectNames: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for it in queue.items where !it.batches.isEmpty && !seen.contains(it.name) { seen.insert(it.name); out.append(it.name) }
+        return out
+    }
+
     var filtered: [ResultRow] {
+        let byProject = project.isEmpty ? rows : rows.filter { projectName($0) == project }
         switch filter {
-        case .all: return rows
-        case .review: return rows.filter { $0.status == "needs review" }
-        case .renamed: return rows.filter { $0.status == "renamed" }
-        case .other: return rows.filter { $0.status != "renamed" && $0.status != "needs review" }
+        case .all: return byProject
+        case .review: return byProject.filter { $0.status == "needs review" }
+        case .renamed: return byProject.filter { $0.status == "renamed" }
+        case .other: return byProject.filter { $0.status != "renamed" && $0.status != "needs review" }
         }
     }
     var reviewCount: Int { rows.filter { $0.status == "needs review" }.count }
@@ -242,15 +87,34 @@ final class MainModel: ObservableObject {
     func loadResults() {
         guard let r = renamer, !exampleData else { return }
         loadingResults = true
-        r.engine(["results", "--limit", "400"]) { j in
+        r.engine(["results", "--limit", "600"]) { j in
             self.loadingResults = false
             if intVal(j["code"]) == 200 { self.rows = ((j["items"] as? [[String: Any]]) ?? []).map(ResultRow.init) }
             else { self.lastMessage = RenamerModel.errorText(j) }
         }
     }
 
-    func reveal(_ row: ResultRow) {
-        let u = URL(fileURLWithPath: row.current)
+    func runSearch() {
+        let q = search.trimmingCharacters(in: .whitespaces)
+        guard let r = renamer, !q.isEmpty, !exampleData else { hits = []; return }
+        searching = true
+        r.engine(["transcripts-search"] + q.split(separator: " ").map(String.init)) { j in
+            self.searching = false
+            self.hits = (j["hits"] as? [[String: Any]]) ?? []
+            if let e = j["error"] as? String { self.lastMessage = e }
+        }
+    }
+
+    func showTranscript(key: String) {
+        guard let r = renamer else { return }
+        r.engine(["transcript", key]) { j in
+            if intVal(j["code"]) == 200 { self.transcript = j } else { r.alert("No transcript", RenamerModel.errorText(j)) }
+        }
+    }
+
+    func reveal(_ row: ResultRow) { revealPath(row.current) }
+    func revealPath(_ p: String) {
+        let u = URL(fileURLWithPath: p)
         if fileExists(u) { NSWorkspace.shared.activateFileViewerSelecting([u]) }
         else if fileExists(u.deletingLastPathComponent()) { NSWorkspace.shared.open(u.deletingLastPathComponent()) }
     }
@@ -265,6 +129,10 @@ final class MainModel: ObservableObject {
 
     func undoBatch(_ row: ResultRow) {
         guard let r = renamer, let b = row.batch else { return }
+        if let name = projectName(row), let it = queue.items.first(where: { $0.name == name && $0.batches.contains(b) }) {
+            r.undoProject(it) { self.loadResults() }
+            return
+        }
         busy = "Checking batch…"
         r.engine(["undo", "--batch", b, "--preview"]) { p in
             self.busy = nil
@@ -317,36 +185,32 @@ final class MainModel: ObservableObject {
         guard !f.isEmpty else { return }
         guard r.confirm("Move renamed clips into “\(f)”?", "\(movableCount) renamed clip(s) at the top of inbox/ (and their notes) move into inbox/\(f)/. Logged and undoable.", ok: "Move") else { return }
         busy = "Moving…"
+        showMove = false
         r.engine(["move-into", f]) { j in self.finish(j, title: "Move") }
-    }
-
-    func loadScopes() {
-        renamer?.engine(["bundle-scopes"]) { j in
-            self.scopes = (j["scopes"] as? [[String: Any]]) ?? []
-            self.exports = (j["exports"] as? [[String: Any]]) ?? []
-            self.exportsDir = j["exports_dir"] as? String
-            if !self.scopes.contains(where: { ($0["value"] as? String) == self.scope }) {
-                self.scope = (self.scopes.first?["value"] as? String) ?? "inbox"
-            }
-        }
     }
 
     func buildBundle() {
         guard let r = renamer else { return }
         busy = "Building transcript bundle…"
-        let opts: [String: Any] = ["scope": scope, "include_silent": includeSilent, "exclude_photos": excludePhotos]
-        let s = String(decoding: (try? JSONSerialization.data(withJSONObject: opts)) ?? Data("{}".utf8), as: UTF8.self)
-        r.engine(["bundle", s]) { j in
+        bundleMessage = nil
+        var o: [String: Any] = ["scope": bundleScope == .project ? "project" : (bundleScope == .queue ? "queue" : "everything")]
+        if bundleScope == .project, let it = queue.items.first(where: { $0.name == bundleProject }) { o["id"] = it.id }
+        let s = String(decoding: (try? JSONSerialization.data(withJSONObject: o)) ?? Data("{}".utf8), as: UTF8.self)
+        r.engine(["queue-bundle", s]) { j in
             self.busy = nil
-            if intVal(j["code"]) == 200 { self.bundle = j; self.loadScopes() }
+            if intVal(j["code"]) == 200 { self.bundleMessage = (j["message"] as? String) ?? "Bundle written to exports/." }
             else { r.alert("Couldn't build the bundle", RenamerModel.errorText(j)) }
         }
     }
 
-    func exportURL(_ name: String) -> URL? { exportsDir.map { URL(fileURLWithPath: $0).appendingPathComponent(name) } }
+    func openExports() {
+        guard let root = renamer?.root else { return }
+        let u = root.appendingPathComponent("exports")
+        NSWorkspace.shared.open(fileExists(u) ? u : root)
+    }
 }
 
-// MARK: - views
+// MARK: - window
 
 struct MainView: View {
     @ObservedObject var main: MainModel
@@ -356,23 +220,12 @@ struct MainView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RunBar(main: main, model: model)
+            Toolbar(main: main, model: model)
             Divider()
-            Picker("", selection: $main.tab) {
-                ForEach(MainTab.allCases, id: \.self) { t in
-                    Text(t == .results && main.reviewCount > 0 ? "Results (\(main.reviewCount) to review)" : t.rawValue).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .frame(maxWidth: 560)
             Group {
                 switch main.tab {
-                case .add: AddClipsView(main: main, model: model, scrolls: scrolls)
+                case .queue: QueueView(main: main, model: model, scrolls: scrolls)
                 case .results: ResultsView(main: main, model: model, scrolls: scrolls)
-                case .tools: ToolsView(main: main, model: model)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: scrolls ? .infinity : nil, alignment: .top)
@@ -388,313 +241,338 @@ struct MainView: View {
                 .padding(.horizontal, 20).padding(.vertical, 8)
             }
         }
-        .frame(minWidth: 860, minHeight: scrolls ? 600 : nil)
+        .frame(minWidth: 860, minHeight: scrolls ? 560 : nil)
         .overlay(dropTarget ? RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 3).padding(4) : nil)
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTarget) { providers in
             loadURLs(providers) { main.add($0) }
             return true
         }
-        .onAppear {
-            main.pruneInvalid()
-            if main.tab == .results { main.loadResults() }
-        }
-        .onDisappear { main.pruneInvalid() }
-        .onChange(of: main.tab) { t in
-            if t == .results { main.loadResults() }
-            if t == .tools { main.loadScopes(); model.refreshInbox(force: true) }
+        .onAppear { if main.tab == .results { main.loadResults() } }
+        .onChange(of: main.tab) { t in if t == .results { main.loadResults() } }
+        .sheet(isPresented: $main.showBundle) { BundleSheet(main: main) }
+        .sheet(isPresented: $main.showMove) { MoveSheet(main: main, model: model) }
+        .sheet(isPresented: Binding(get: { main.transcript != nil }, set: { if !$0 { main.transcript = nil } })) {
+            if let t = main.transcript { TranscriptSheet(main: main, t: t) }
         }
     }
 }
 
-/// File URLs from drag-and-drop providers (Finder files and folders).
-func loadURLs(_ providers: [NSItemProvider], _ done: @escaping ([URL]) -> Void) {
-    final class Box: @unchecked Sendable { var urls: [URL] = []; let lock = NSLock() }
-    let box = Box()
-    let g = DispatchGroup()
-    for p in providers where p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-        g.enter()
-        _ = p.loadObject(ofClass: URL.self) { u, _ in
-            if let u { box.lock.lock(); box.urls.append(u); box.lock.unlock() }
-            g.leave()
-        }
-    }
-    g.notify(queue: .main) { done(box.urls) }
-}
-
-/// Status + Start / Stop + dry-run toggle (calls the engine directly; same locks and guards as everywhere).
-private struct RunBar: View {
+/// Queue | Results, a status pill, Tools ▾ and ⚙︎ (GrokGauge-style header).
+private struct Toolbar: View {
     @ObservedObject var main: MainModel
     @ObservedObject var model: RenamerModel
 
     var body: some View {
-        let running = model.runActive && model.isPipelineRun
-        HStack(spacing: 14) {
-            ZStack {
-                RingGauge(fraction: Double(model.progress?.pct ?? 0) / 100, color: model.level.color, lineWidth: 6)
-                Text(model.progress.map { "\($0.pct)%" } ?? "—").font(.system(size: 12, weight: .bold, design: .rounded)).monospacedDigit()
+        HStack(spacing: 12) {
+            Picker("", selection: $main.tab) {
+                Text("Queue").tag(MainTab.queue)
+                Text(main.reviewCount > 0 ? "Results (\(main.reviewCount) to review)" : "Results").tag(MainTab.results)
             }
-            .frame(width: 52, height: 52)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.headline).font(.headline)
-                Text(running ? (model.currentClip.map { "\(model.subline) · \($0)" } ?? model.subline) : model.subline)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if let e = model.eta, running {
-                    Text("done ≈ \(clockString(e))").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            Toggle("Dry run (preview only)", isOn: $main.dryRunOnly)
-                .toggleStyle(.checkbox)
-                .disabled(model.dryRun)
-                .help(model.dryRun ? "config dry_run is on — every run is a dry run" : "Process without renaming anything (notes go to notes/dry-run/)")
-            Button {
-                if running { model.stopRun() }
-                else {
-                    model.engine(["inbox"]) { j in
-                        let pending = intVal(j["pending_count"]) ?? 0
-                        if pending == 0 { model.alert("Nothing to process", "No unprocessed clips in inbox/. Add clips on the Add Clips tab first."); return }
-                        let f = main.folderName.trimmingCharacters(in: .whitespaces)
-                        model.startRun(RunOptions(dry: main.dryRunOnly, folder: main.mode == .copy && !f.isEmpty ? f : nil,
-                                                  projectFromFolder: main.folderAsProject), pending: pending)
-                    }
-                }
-            } label: {
-                Label(running ? "Stop" : "Start inbox", systemImage: running ? "stop.fill" : "play.fill").frame(minWidth: 90)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(running ? .red : .accentColor)
-            .controlSize(.large)
-            .disabled(!model.lexarOK || model.actionBusy != nil || (!running && model.startBlocker != nil))
-            .help(running ? "Stop processing" : (model.startBlocker ?? "Process every unprocessed clip in inbox/"))
-            Button { model.showChat(nil) } label: { Label("Ask", systemImage: "sparkles") }
-                .controlSize(.large)
-                .help("Ask the local model (⌘K)")
-                .keyboardShortcut("k")
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-    }
-}
-
-private struct AddClipsView: View {
-    @ObservedObject var main: MainModel
-    @ObservedObject var model: RenamerModel
-    var scrolls = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            if let ir = model.interruptedRun, !model.runActive { ResumeBanner(model: model, run: ir) }
-            if main.queue.isEmpty {
-                DropZone(main: main)
-            } else {
-                // Only the list scrolls; the header (Clear / Start over) and the controls below stay put.
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(main.heldGroups, id: \.name) { g in
-                            HeldSummaryRow(name: g.name, count: g.count) { main.removeHeld(g.name) }
-                            Divider()
-                        }
-                        ForEach(main.listedItems) { item in
-                            QueueRow(item: item, mode: main.mode) { main.remove(item) }
-                            Divider()
-                        }
-                    }
-                }
-                .frame(minHeight: 90, maxHeight: scrolls ? .infinity : 240)
-                .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 10))
-                .layoutPriority(1)
-            }
-            controls
-        }
-        .padding(20)
-    }
-
-    private var header: some View {
-        HStack {
-            if main.queue.isEmpty {
-                Text("No clips added").font(.headline).foregroundStyle(.secondary)
-            } else {
-                Text("\(main.queue.count) item(s) · \(main.clipCount) clip(s) to \(main.mode == .copy ? "copy" : "process")").font(.headline)
-            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 300)
             if main.exampleData {
                 Text("EXAMPLE DATA").font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.orange.opacity(0.25), in: Capsule())
             }
             Spacer()
-            Button("Choose…") { main.choose() }
-            Button("Clear") { main.clear() }
-                .disabled(main.copying || main.queue.isEmpty)
-                .help("Remove every item from the list")
-            Button("Start Over") { main.startOver() }
-                .disabled(main.copying)
-                .help("Clear the list and reset the folder name and options")
+            statusPill
+            Menu {
+                Button("Transcript Bundle…") { main.showBundle = true }
+                Button("Move Renamed Clips into a Folder…") { main.showMove = true }
+                    .disabled(main.movableCount == 0 || model.runActive || model.dryRun)
+                Button("Sort into Projects…") { model.showSort() }
+                Button("Instructions…") { model.showInstructions() }
+                Button("Ask the Model…") { model.showChat(nil) }.keyboardShortcut("k")
+                Divider()
+                Button("Open Inbox") { model.openInbox() }
+                Button("Open Exports") { main.openExports() }
+                Divider()
+                Button("Clear Finished Projects") { model.queueClear(all: false) }
+                Button("Clear Queue…") { model.queueClear(all: true) }.disabled(main.queue.running)
+            } label: { Label("Tools", systemImage: "wrench.and.screwdriver") }
+            .fixedSize()
+            Menu {
+                Button("Settings…") { model.showSettings() }
+                Button("Setup & Updates…") { model.showSetup() }
+                Button("About \(kAppName)") { model.showAbout() }
+            } label: { Image(systemName: "gearshape") }
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Settings, Setup and About")
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
     }
 
-    @ViewBuilder private var controls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-                Picker("Mode", selection: $main.mode) {
-                    ForEach(AddMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.radioGroup)
-                .horizontalRadioGroupLayout()
-                if main.mode == .copy {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Clips are copied to inbox/ (originals untouched, nothing overwritten — same name and size is skipped, otherwise _2, _3 …). Renamed clips can go into a folder:")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        HStack {
-                            TextField("Folder name (optional), e.g. Retro Game Expo", text: $main.folderName).frame(maxWidth: 360)
-                            Toggle("Use folder name as the project in filenames", isOn: $main.folderAsProject)
-                                .disabled(main.folderName.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                        Toggle("Start processing when the copy finishes", isOn: $main.startAfterCopy)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Clips are renamed where they are — no copy. Folders on hold (hold_sources in config/project-sort.json), DaVinci Resolve's own folders and Cloud-synced projects are refused. Inside the DaVinci Resolve folder you'll be asked first: renaming media Resolve already imported breaks its links.")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        if main.needsConfirm {
-                            Label("Some clips are inside the DaVinci Resolve folder — you'll be asked to confirm.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                    }
-                }
-            if main.copying {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: main.copyFraction)
-                    HStack {
-                        Text(main.copyLine).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button("Cancel") { main.cancelCopy() }.controlSize(.small)
-                    }
-                }
-            }
-            HStack(spacing: 12) {
-                if let s = status {
-                    Label(s.text, systemImage: s.icon)
-                        .font(.callout).foregroundStyle(s.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button {
-                    main.go()
-                } label: {
-                    Label(main.mode == .copy ? (main.startAfterCopy ? "Copy & Process" : "Copy into Inbox") : "Process in Place",
-                          systemImage: main.mode == .copy ? "square.and.arrow.down.on.square" : "wand.and.stars")
-                        .frame(minWidth: 150)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(blocked)
-                .help(status?.text ?? "")
-            }
-        }
-    }
-
-    private var blocked: Bool {
-        main.usable.isEmpty || main.copying || !model.lexarOK || main.isChecking
-            || (main.mode == .inPlace && model.startBlocker != nil)
-    }
-
-    /// Why the button is (or isn't) available — never a silently disabled button.
-    private var status: (text: String, icon: String, color: Color)? {
-        if main.copying { return nil }
-        if !model.lexarOK { return ("The project folder isn't available. Connect the drive or choose it in Setup.", "externaldrive.badge.xmark", .orange) }
-        if main.queue.isEmpty { return ("Add clips or folders to start.", "info.circle", .secondary) }
-        if main.isChecking {
-            let n = main.queue.filter { $0.status == "checking" }.count
-            return ("Checking \(n) item(s)…", "hourglass", .secondary)
-        }
-        if main.usable.isEmpty {
-            let held = main.heldGroups.map { "“\($0.name)”" }
-            if !held.isEmpty && main.listedItems.isEmpty {
-                return ("Nothing to process: \(held.joined(separator: ", ")) \(held.count == 1 ? "is" : "are") on hold. Remove it from the list, or choose another folder.", "hand.raised.fill", .red)
-            }
-            return ("Nothing to \(main.mode == .copy ? "copy" : "process"): every item was refused or has no clips. Remove them or choose others.", "exclamationmark.triangle.fill", .orange)
-        }
-        if main.mode == .inPlace, let b = model.startBlocker { return (b, "exclamationmark.triangle.fill", .orange) }
-        return ("Ready: \(main.clipCount) clip(s).", "checkmark.circle.fill", .green)
+    private var statusPill: some View {
+        let (t, c): (String, Color) = {
+            if !model.lexarOK { return ("Drive not connected", .red) }
+            if model.resolveRunning { return ("Resolve is open", .orange) }
+            if main.queue.running { return (main.queue.state == "pausing" ? "Pausing…" : "Running", .blue) }
+            if model.runActive { return ("Busy", .blue) }
+            return ("Ready · " + (model.dryRun ? "dry run" : "live"), .green)
+        }()
+        return Label(t, systemImage: "circle.fill")
+            .labelStyle(PillLabel())
+            .font(.caption.weight(.semibold)).foregroundStyle(c)
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(c.opacity(0.14), in: Capsule())
     }
 }
 
-/// One row for everything dropped from a held folder (instead of one red row per clip).
-private struct HeldSummaryRow: View {
-    let name: String
-    let count: Int
-    let remove: () -> Void
+private struct PillLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) { configuration.icon.font(.system(size: 6)); configuration.title }
+    }
+}
+
+// MARK: - Queue
+
+private struct QueueView: View {
+    @ObservedObject var main: MainModel
+    @ObservedObject var model: RenamerModel
+    var scrolls: Bool
+
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised.fill").foregroundStyle(.red).frame(width: 20)
+        let q = main.queue
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                DropZone(main: main, compact: !q.items.isEmpty)
+                if q.items.isEmpty {
+                    Text("Each folder becomes a project (its name is editable). In place renames clips where they are; Copy to inbox copies them first (originals untouched). Held, Resolve-internal and Cloud-synced folders are refused.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 10)
+            if !q.items.isEmpty {
+                if scrolls {
+                    ScrollView { list(q) }.frame(maxHeight: .infinity)
+                } else {
+                    list(q)
+                }
+            } else {
+                Spacer(minLength: 0)
+            }
+            Divider()
+            footer(q)
+        }
+    }
+
+    private func list(_ q: QueueState) -> some View {
+        LazyVStack(spacing: 7) {
+            ForEach(Array(q.items.enumerated()), id: \.element.id) { i, it in
+                ProjectRow(main: main, model: model, item: it, position: i, count: q.items.count, queueRunning: q.running)
+            }
+        }
+        .padding(.horizontal, 20).padding(.bottom, 12)
+    }
+
+    @ViewBuilder private func footer(_ q: QueueState) -> some View {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("“\(name)” is on hold — remove it from hold in Settings or config to process")
-                    .font(.callout.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-                Text("\(count) item(s) skipped · hold_sources in config/project-sort.json · nothing was touched")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text(footerLine(q)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if !q.message.isEmpty && !q.running { Text(q.message).font(.caption2).foregroundStyle(.tertiary).lineLimit(1) }
             }
             Spacer()
-            Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                .buttonStyle(.borderless).help("Remove from the list")
+            if q.running {
+                Button { model.queuePause() } label: { Label(q.state == "pausing" ? "Pausing…" : "Pause after this clip", systemImage: "pause.fill") }
+                    .disabled(q.state == "pausing")
+                Button { model.queueStop() } label: { Label("Stop", systemImage: "stop.fill") }
+            } else {
+                Toggle("Dry run", isOn: $main.queueDry).toggleStyle(.checkbox)
+                    .disabled(model.dryRun)
+                    .help(model.dryRun ? "config dry_run is on — every run is a dry run" : "Process without renaming anything")
+                Toggle("Build transcript bundle when done", isOn: Binding(
+                    get: { q.autoBundle }, set: { v in model.queueOptions(["auto_bundle": v]) }))
+                    .toggleStyle(.checkbox)
+                Button {
+                    model.queueStart(dryRun: main.queueDry, autoBundle: q.autoBundle)
+                } label: {
+                    Label(q.canResume ? "Resume queue" : "Start queue", systemImage: "play.fill").frame(minWidth: 110)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(q.left.isEmpty || model.startBlocker != nil || model.actionBusy != nil)
+                .help(q.left.isEmpty ? "Add folders or clips first" : (model.startBlocker ?? "Run every waiting project in order"))
+            }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(Color.red.opacity(0.08))
+        .padding(.horizontal, 20).padding(.vertical, 12)
+    }
+
+    private func footerLine(_ q: QueueState) -> String {
+        if !model.lexarOK { return Project.missingTitle }
+        if model.resolveRunning { return "DaVinci Resolve is open — the queue can't start until it quits." }
+        if q.items.isEmpty { return "Nothing queued yet." }
+        if q.running, let c = q.current {
+            return "Project \((q.items.firstIndex(of: c) ?? 0) + 1) of \(q.items.count) · \(q.summaryLine) · resumes after a stop, quit or sleep"
+        }
+        var s = "\(q.left.count) project(s) · \(q.clipsLeft) clip(s)"
+        let est = queueEstimate(clips: q.clipsLeft)
+        if !est.isEmpty { s += " · \(est)" }
+        s += (main.queueDry || model.dryRun) ? " · Dry run" : " · Live (renames files)"
+        let inResolve = q.left.filter { $0.mode == "in_place" && $0.needsConfirm }.count
+        if inResolve > 0 && !(main.queueDry || model.dryRun) { s += " · \(inResolve) in the DaVinci Resolve folder: you'll confirm once" }
+        if let b = model.startBlocker, !q.left.isEmpty { s += " — " + b }
+        return s
     }
 }
 
 private struct DropZone: View {
     @ObservedObject var main: MainModel
+    var compact: Bool
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 34)).foregroundStyle(.secondary)
-            Text("Drop clips or folders here").font(.title3.weight(.semibold))
-            Text("…or on the \(kAppName) menu bar icon. Videos and photos; folders are searched (hidden and held folders skipped).")
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Choose…") { main.choose() }.controlSize(.large)
+        Group {
+            if compact {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.rectangle.on.folder").foregroundStyle(.secondary)
+                    Text("Drop more folders or clips — they join the end of the queue").foregroundStyle(.secondary)
+                    Button("Choose…") { main.choose() }.controlSize(.small)
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity, minHeight: 40)
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.and.arrow.down.on.square").font(.system(size: 34)).foregroundStyle(.secondary)
+                    Text("Drop folders or clips here").font(.title3.weight(.semibold))
+                    Text("…or on the \(kAppName) menu bar icon. Each folder becomes a project.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("Choose…") { main.choose() }.controlSize(.large)
+                }
+                .frame(maxWidth: .infinity, minHeight: 170)
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 180)
-        .background(RoundedRectangle(cornerRadius: 14).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).foregroundStyle(.tertiary))
+        .background(RoundedRectangle(cornerRadius: 12).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])).foregroundStyle(.tertiary))
     }
 }
 
-private struct QueueRow: View {
-    let item: QueuedItem
-    let mode: AddMode
-    let remove: () -> Void
+private struct ProjectRow: View {
+    @ObservedObject var main: MainModel
+    @ObservedObject var model: RenamerModel
+    let item: QueueItem
+    let position: Int
+    let count: Int
+    let queueRunning: Bool
+    @ViewState private var name = ""
+    @ViewState private var editingName = false
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: item.isDir ? "folder.fill" : "film").foregroundStyle(.secondary).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.url.lastPathComponent).font(.callout.weight(.medium)).lineLimit(1)
-                Text(item.url.deletingLastPathComponent().path).font(.caption2).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+            statusIcon.frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    if editingName {
+                        TextField("Project name", text: $name, onCommit: commitName)
+                            .textFieldStyle(.roundedBorder).frame(maxWidth: 280)
+                    } else {
+                        Text(item.name).font(.callout.weight(.semibold)).lineLimit(1)
+                        if editable {
+                            Button { name = item.name; editingName = true } label: { Image(systemName: "pencil") }
+                                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Rename the project")
+                        }
+                    }
+                }
+                Text(subline).font(.caption).foregroundStyle(item.isRefused || item.status == "failed" ? Color.red : Color.secondary)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if item.isRunning {
+                    ProgressView(value: item.fraction).progressViewStyle(.linear).frame(maxWidth: 360)
+                }
             }
-            Spacer()
-            verdict
-            Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.borderless)
+            Spacer(minLength: 8)
+            if !item.isRefused {
+                Picker("", selection: Binding(get: { item.mode }, set: { model.queueUpdate(item.id, ["mode": $0]) })) {
+                    Text("In place").tag("in_place")
+                    Text("Copy to inbox").tag("copy")
+                }
+                .labelsHidden().frame(width: 130).disabled(!editable)
+                .help(item.mode == "copy" ? "Copied into inbox/\(item.name)/ first; originals untouched" : "Renamed where they are")
+                Toggle("Transcribe", isOn: Binding(get: { item.transcribe }, set: { model.queueUpdate(item.id, ["transcribe": $0]) }))
+                    .toggleStyle(.switch).controlSize(.mini).disabled(!editable)
+                    .help("Speech to text (whisper) for this project's clips")
+            } else {
+                Text("Refused").font(.caption.weight(.semibold)).foregroundStyle(.red)
+                    .padding(.horizontal, 7).padding(.vertical, 2).background(Color.red.opacity(0.14), in: Capsule())
+            }
+            Menu { menu } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 10).fill(item.isRefused ? Color.red.opacity(0.07) : Color.primary.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(item.isRunning ? Color.accentColor : Color.primary.opacity(0.08),
+                                                                lineWidth: item.isRunning ? 1.5 : 0.5))
+        .opacity(item.status == "paused" || item.status == "skipped" ? 0.6 : 1)
     }
 
-    @ViewBuilder private var verdict: some View {
-        if item.status == "checking" {
-            ProgressView().controlSize(.small)
-        } else if item.status == "error" {
-            tag(item.reason, .red).help(item.reason)
-        } else if mode == .copy {
-            if !item.copyOK { tag("on hold — not copied", .orange) }
-            else { tag("\(item.copyCount) clip(s)" + (item.bytes > 0 ? " · \(byteString(item.bytes))" : ""), .secondary) }
-        } else if item.status == "refused" || item.status == "error" {
-            tag(item.reason, .red).help(item.reason)
-        } else if item.needsConfirm {
-            tag("\(item.mediaCount) clip(s) · DaVinci Resolve — asks first", .orange).help(item.reason)
-        } else {
-            tag("\(item.mediaCount) clip(s) · OK in place", .green)
+    private var editable: Bool { !item.isRunning && !item.isFinished && !main.exampleData }
+
+    private func commitName() {
+        editingName = false
+        let n = name.trimmingCharacters(in: .whitespaces)
+        if !n.isEmpty && n != item.name { model.queueUpdate(item.id, ["name": n]) }
+    }
+
+    @ViewBuilder private var menu: some View {
+        if item.status == "paused" { Button("Resume this project") { model.queueUpdate(item.id, ["paused": false]) } }
+        else if ["waiting", "stopped"].contains(item.status) { Button("Pause this project") { model.queueUpdate(item.id, ["paused": true]) } }
+        if !item.isFinished { Button(item.isRunning ? "Skip (stop this project, go on)" : "Skip") { model.queueSkip(item.id) } }
+        if !item.isRefused {
+            Toggle("Use the name in filenames", isOn: Binding(get: { item.nameInFilenames },
+                                                               set: { model.queueUpdate(item.id, ["name_in_filenames": $0]) }))
+                .disabled(!editable)
+        }
+        Divider()
+        Button("Move Up") { model.queueMove(item.id, to: position - 1) }.disabled(position == 0)
+        Button("Move Down") { model.queueMove(item.id, to: position + 1) }.disabled(position >= count - 1)
+        Divider()
+        Button("Show in Finder") { model.revealProject(item) }
+        if !item.batches.isEmpty {
+            Button("Show Results") { main.project = item.name; main.tab = .results }
+            Button("Transcript Bundle for this Project…") { main.bundleScope = .project; main.bundleProject = item.name; main.showBundle = true }
+            Button("Undo this Project…") { model.undoProject(item) }
+        }
+        Divider()
+        Button("Remove from Queue") { model.queueRemove(item.id) }.disabled(item.isRunning)
+    }
+
+    @ViewBuilder private var statusIcon: some View {
+        switch item.status {
+        case "running": ProgressView().controlSize(.small)
+        case "done": Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case "done_with_errors": Image(systemName: "checkmark.circle.trianglebadge.exclamationmark").foregroundStyle(.orange)
+        case "refused": Image(systemName: "hand.raised.fill").foregroundStyle(.red)
+        case "failed": Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+        case "paused": Image(systemName: "pause.circle").foregroundStyle(.orange)
+        case "skipped": Image(systemName: "forward.end.circle").foregroundStyle(.secondary)
+        case "stopped": Image(systemName: "stop.circle").foregroundStyle(.orange)
+        default: Image(systemName: item.paths.count == 1 && FileManager.default.isDirectory(URL(fileURLWithPath: item.paths[0])) ? "folder.fill" : "film.stack")
+            .foregroundStyle(.secondary)
         }
     }
 
-    private func tag(_ s: String, _ c: Color) -> some View {
-        Text(s).font(.caption).foregroundStyle(c).lineLimit(1).truncationMode(.tail).frame(maxWidth: 320, alignment: .trailing)
+    private var subline: String {
+        if item.isRefused { return item.reason }
+        if item.isRunning {
+            let n = max(item.total, item.clips)
+            var s = item.step == "copying" ? "Copying \(item.index) of \(n)" : "Clip \(max(1, item.index)) of \(n)"
+            if let c = item.current { s += " · \(c)" }
+            if let st = item.step, st != "copying" { s += " · \(st)" }
+            if let e = item.etaSeconds, e > 0 { s += " · \(e / 60) min left" }
+            return s
+        }
+        if item.isFinished || item.status == "stopped" { return item.message.isEmpty ? item.status : item.message }
+        var s = "\(item.clips) clip(s)"
+        if !item.location.isEmpty { s += " · \(item.location)" }
+        if item.mode == "copy" { s += " · into inbox/\(item.name)/" }
+        if item.needsConfirm && item.mode == "in_place" { s += " · DaVinci Resolve folder (asked once)" }
+        if !item.transcribe { s += " · no transcription" }
+        if item.nameInFilenames { s += " · name in filenames" }
+        if !item.reason.isEmpty { s += " · " + item.reason }
+        return s
     }
 }
+
+// MARK: - Results
 
 private struct ResultsView: View {
     @ObservedObject var main: MainModel
@@ -703,41 +581,55 @@ private struct ResultsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 10) {
+                Picker("Project", selection: $main.project) {
+                    Text("All projects").tag("")
+                    ForEach(main.projectNames, id: \.self) { Text($0).tag($0) }
+                }
+                .frame(maxWidth: 240)
                 Picker("Show", selection: $main.filter) {
                     ForEach(ResultFilter.allCases, id: \.self) { f in
                         Text(f == .review ? "Needs review (\(main.reviewCount))" : f.rawValue).tag(f)
                     }
                 }
-                .frame(maxWidth: 300)
-                if main.exampleData {
-                    Text("EXAMPLE DATA").font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.orange.opacity(0.25), in: Capsule())
-                }
+                .frame(maxWidth: 230)
                 Spacer()
-                if main.loadingResults || main.busy != nil { ProgressView().controlSize(.small) }
-                if let b = main.busy { Text(b).font(.caption).foregroundStyle(.secondary) }
-                Button { main.loadResults() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                TextField("Search transcripts", text: $main.search, onCommit: { main.runSearch() })
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 220)
+                if !main.search.isEmpty {
+                    Button { main.search = ""; main.hits = [] } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.borderless)
+                }
+                if main.loadingResults || main.busy != nil || main.searching { ProgressView().controlSize(.small) }
+                Button { main.loadResults() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh")
             }
-            header
-            if scrolls {
-                ScrollView { rowsList }
+            if let b = main.busy { Text(b).font(.caption).foregroundStyle(.secondary) }
+            if !main.search.isEmpty && (!main.hits.isEmpty || !main.searching) {
+                hitsList
             } else {
-                rowsList
+                header
+                if scrolls { ScrollView { rowsList } } else { rowsList }
             }
             if let e = main.editing { ReviewEditor(main: main, row: e) }
+            if !main.project.isEmpty, let it = main.queue.items.first(where: { $0.name == main.project }) {
+                HStack {
+                    Text("Project “\(it.name)” · every rename is in logs/rename-log.jsonl").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Transcript bundle…") { main.bundleScope = .project; main.bundleProject = it.name; main.showBundle = true }
+                    Button("Undo project…") { model.undoProject(it) { main.loadResults() } }.disabled(it.batches.isEmpty)
+                }
+            }
         }
         .padding(20)
     }
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Original").frame(width: 220, alignment: .leading)
+            Text("Project").frame(width: 130, alignment: .leading)
+            Text("Original").frame(width: 190, alignment: .leading)
             Text("New name").frame(maxWidth: .infinity, alignment: .leading)
-            Text("Type").frame(width: 90, alignment: .leading)
             Text("Conf.").frame(width: 44, alignment: .trailing)
             Text("Status").frame(width: 100, alignment: .leading)
-            Text("").frame(width: 120)
+            Text("").frame(width: 110)
         }
         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         .padding(.horizontal, 10)
@@ -756,7 +648,168 @@ private struct ResultsView: View {
         }
         .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 10))
     }
+
+    private var hitsList: some View {
+        let content = LazyVStack(alignment: .leading, spacing: 0) {
+            Text("\(main.hits.count) match(es) for “\(main.search)” across every transcript")
+                .font(.caption).foregroundStyle(.secondary).padding(10)
+            ForEach(main.hits.indices, id: \.self) { i in
+                let h = main.hits[i]
+                HStack(alignment: .top, spacing: 10) {
+                    Text(timeString(h["start"])).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(h["file"] as? String ?? "?").font(.callout.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                        Text(h["text"] as? String ?? "").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Transcript") { if let k = (h["clip_id"] as? String) ?? (h["path"] as? String) { main.showTranscript(key: k) } }
+                        .controlSize(.small)
+                    Button("Show") { main.revealPath(h["path"] as? String ?? "") }.controlSize(.small)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                Divider()
+            }
+        }
+        .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 10))
+        return Group { if scrolls { ScrollView { content } } else { content } }
+    }
 }
+
+func timeString(_ v: Any?) -> String {
+    let s = Int((v as? NSNumber)?.doubleValue ?? 0)
+    return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+}
+
+private struct TranscriptSheet: View {
+    @ObservedObject var main: MainModel
+    let t: [String: Any]
+    var body: some View {
+        let segs = (t["segments"] as? [[String: Any]]) ?? []
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(t["file"] as? String ?? "Transcript").font(.headline).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("Copy") {
+                    let text = segs.map { "[\(timeString($0["start"]))] \($0["text"] as? String ?? "")" }.joined(separator: "\n")
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+                }
+                Button("Show in Finder") { main.revealPath(t["path"] as? String ?? "") }
+            }
+            if segs.isEmpty {
+                Text("No speech in this clip (or it wasn't transcribed).").foregroundStyle(.secondary).padding(.vertical, 20)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(segs.indices, id: \.self) { i in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(timeString(segs[i]["start"])).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+                                Text(segs[i]["text"] as? String ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+            HStack { Spacer(); Button("Done") { main.transcript = nil }.keyboardShortcut(.defaultAction) }
+        }
+        .padding(20)
+        .frame(width: 620, height: 480)
+    }
+}
+
+private struct BundleSheet: View {
+    @ObservedObject var main: MainModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Transcript Bundle").font(.headline)
+            Text("One JSON + Markdown file pair in exports/ with every transcript in the scope — ready to paste into a script-writing chat. Read-only for your clips.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Picker("Scope", selection: $main.bundleScope) {
+                ForEach(BundleScope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            if main.bundleScope == .project {
+                Picker("Project", selection: $main.bundleProject) {
+                    ForEach(main.projectNames, id: \.self) { Text($0).tag($0) }
+                }
+            }
+            Toggle("Include clips with no speech", isOn: $main.includeSilent)
+            if let m = main.bundleMessage { Text(m).font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Button("Open Exports") { main.openExports() }
+                Spacer()
+                Button("Close") { main.showBundle = false }
+                Button("Build") { main.buildBundle() }.buttonStyle(.borderedProminent)
+                    .disabled(main.busy != nil || (main.bundleScope == .project && main.bundleProject.isEmpty))
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+    }
+}
+
+private struct MoveSheet: View {
+    @ObservedObject var main: MainModel
+    @ObservedObject var model: RenamerModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Move renamed clips into a folder").font(.headline)
+            Text("\(main.movableCount) renamed clip(s) are at the top of inbox/. Move them (with their notes) into inbox/<folder>/ — logged and undoable.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("Folder name", text: $main.moveFolder)
+            HStack {
+                Spacer()
+                Button("Cancel") { main.showMove = false }
+                Button("Move…") { main.moveInto() }.buttonStyle(.borderedProminent)
+                    .disabled(main.moveFolder.trimmingCharacters(in: .whitespaces).isEmpty || main.movableCount == 0 || model.runActive || model.dryRun)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+}
+
+struct ResultRow: Identifiable {
+    let id: String
+    let d: [String: Any]
+    init(_ d: [String: Any]) {
+        self.d = d
+        id = (d["source"] as? String ?? UUID().uuidString) + "|" + (d["time"] as? String ?? "")
+    }
+    var name: String { d["name"] as? String ?? "?" }
+    var source: String { d["source"] as? String ?? "" }
+    var current: String { d["current"] as? String ?? source }
+    var proposed: String? { d["proposed"] as? String }
+    var clipType: String { d["clip_type"] as? String ?? "—" }
+    var confidence: Double? { (d["confidence"] as? NSNumber)?.doubleValue }
+    var status: String { d["status"] as? String ?? "skipped" }
+    var logID: String? { d["log_id"] as? String }
+    var batch: String? { d["batch"] as? String }
+    var noteID: String? { d["note_id"] as? String }
+    var reasons: [String] { d["review_reasons"] as? [String] ?? [] }
+    var newName: String {
+        if status == "renamed" { return (current as NSString).lastPathComponent }
+        return proposed ?? "—"
+    }
+    var time: Date? { (d["time"] as? String).flatMap { isoParser.date(from: $0) } }
+    var inResolve: Bool { current.contains("/DaVinci Resolve/") || current.contains("/DaVinci Resolve Media/") }
+}
+
+
+/// File URLs from drag-and-drop providers (Finder files and folders).
+func loadURLs(_ providers: [NSItemProvider], _ done: @escaping ([URL]) -> Void) {
+    final class Box: @unchecked Sendable { var urls: [URL] = []; let lock = NSLock() }
+    let box = Box()
+    let g = DispatchGroup()
+    for p in providers where p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+        g.enter()
+        _ = p.loadObject(ofClass: URL.self) { u, _ in
+            if let u { box.lock.lock(); box.urls.append(u); box.lock.unlock() }
+            g.leave()
+        }
+    }
+    g.notify(queue: .main) { done(box.urls) }
+}
+
 
 private struct ResultLine: View {
     @ObservedObject var main: MainModel
@@ -765,7 +818,9 @@ private struct ResultLine: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(row.name).lineLimit(1).truncationMode(.middle).frame(width: 220, alignment: .leading)
+            Text(main.projectName(row) ?? row.d["folder"] as? String ?? "—").foregroundStyle(.secondary).lineLimit(1)
+                .truncationMode(.tail).frame(width: 130, alignment: .leading)
+            Text(row.name).lineLimit(1).truncationMode(.middle).frame(width: 190, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.newName).lineLimit(1).truncationMode(.middle)
                     .foregroundStyle(row.status == "renamed" ? Color.primary : Color.secondary)
@@ -774,7 +829,6 @@ private struct ResultLine: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(row.clipType).foregroundStyle(.secondary).lineLimit(1).frame(width: 90, alignment: .leading)
             Text(row.confidence.map { String(format: "%.2f", $0) } ?? "—").monospacedDigit().foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
             statusTag.frame(width: 100, alignment: .leading)
@@ -787,14 +841,15 @@ private struct ResultLine: View {
                     if row.logID != nil {
                         Button(row.status == "renamed" ? "Undo this rename" : "Clear needs-review mark") { main.undo(row) }
                     }
-                    if row.batch != nil { Button("Undo whole batch…") { main.undoBatch(row) } }
+                    if row.batch != nil { Button(main.projectName(row) != nil ? "Undo whole project…" : "Undo whole batch…") { main.undoBatch(row) } }
+                    if let n = row.noteID { Button("Transcript…") { main.showTranscript(key: n) } }
                     if row.status != "needs review", row.proposed != nil, row.status != "renamed" {
                         Button("Rename to proposed name…") { main.startEdit(row) }
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             }
-            .frame(width: 120, alignment: .trailing)
+            .frame(width: 110, alignment: .trailing)
         }
         .font(.callout)
         .padding(.horizontal, 10).padding(.vertical, 7)
@@ -847,72 +902,6 @@ private struct ReviewEditor: View {
     }
 }
 
-private struct ToolsView: View {
-    @ObservedObject var main: MainModel
-    @ObservedObject var model: RenamerModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PrefGroup(title: "Move renamed clips into a folder") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("\(main.movableCount) renamed clip(s) are at the top of inbox/. Move them (with their notes) into inbox/<folder>/ — logged and undoable.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    HStack {
-                        TextField("Folder name", text: $main.moveFolder).frame(maxWidth: 320)
-                        Button("Move…") { main.moveInto() }
-                            .disabled(main.moveFolder.trimmingCharacters(in: .whitespaces).isEmpty || main.movableCount == 0 || model.runActive || model.dryRun)
-                    }
-                }
-            }
-            PrefGroup(title: "Transcript bundle (exports/)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Scope", selection: $main.scope) {
-                        ForEach(main.scopes.indices, id: \.self) { i in
-                            Text(main.scopes[i]["label"] as? String ?? "?").tag(main.scopes[i]["value"] as? String ?? "inbox")
-                        }
-                        if main.scopes.isEmpty { Text("All of inbox/").tag("inbox") }
-                    }
-                    .frame(maxWidth: 560)
-                    HStack {
-                        Toggle("Include silent clips", isOn: $main.includeSilent)
-                        Toggle("Leave out photos", isOn: $main.excludePhotos)
-                        Spacer()
-                        Button("Build bundle") { main.buildBundle() }.disabled(main.busy != nil)
-                    }
-                    if let b = main.bundle {
-                        Text((b["message"] as? String) ?? "Bundle written.").font(.caption).foregroundStyle(.secondary)
-                        if let n = b["note"] as? String { Text(n).font(.caption).foregroundStyle(.orange) }
-                    }
-                    if !main.exports.isEmpty {
-                        Divider()
-                        ForEach(main.exports.prefix(4).indices, id: \.self) { i in
-                            let e = main.exports[i]
-                            let name = e["name"] as? String ?? "?"
-                            HStack {
-                                Image(systemName: name.hasSuffix(".md") ? "doc.text" : "curlybraces").foregroundStyle(.secondary)
-                                Text(name).font(.caption).lineLimit(1)
-                                Spacer()
-                                Button("Open") { if let u = main.exportURL(name) { NSWorkspace.shared.open(u) } }.controlSize(.small)
-                                Button("Reveal") { if let u = main.exportURL(name) { NSWorkspace.shared.activateFileViewerSelecting([u]) } }.controlSize(.small)
-                            }
-                        }
-                    }
-                }
-            }
-            PrefGroup(title: "More") {
-                HStack(spacing: 10) {
-                    Button { model.showSort() } label: { Label("Sort into Projects…", systemImage: "folder.badge.gearshape") }
-                    Button { model.showInstructions() } label: { Label("Instructions…", systemImage: "text.bubble") }
-                    Button { model.showSetup() } label: { Label("Setup & Updates…", systemImage: "wrench.and.screwdriver") }
-                    Button { model.showAbout() } label: { Label("About", systemImage: "info.circle") }
-                    Spacer()
-                    Button { model.openInbox() } label: { Label("Open inbox", systemImage: "folder") }
-                }
-            }
-        }
-        .padding(20)
-    }
-}
 
 extension PreviewData {
     /// Example rows for --render-preview (labelled EXAMPLE DATA in the window; never read from or written to disk).
@@ -936,27 +925,30 @@ extension PreviewData {
             row("CAM_20260101104541_0019_D.MP4", "20261004_retro-game-expo_crowd-pan_broll.mp4", "broll", 0.79, "dry run"),
         ]
     }
-}
 
-
-/// v0.7.6: an in-place run stopped before its list was done — one click picks it up where it left off.
-private struct ResumeBanner: View {
-    @ObservedObject var model: RenamerModel
-    let run: InterruptedRun
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.clockwise.circle.fill").font(.title2).foregroundStyle(.blue)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(run.folderName): \(run.left) of \(run.total) clip(s) left from the last run").font(.callout.weight(.semibold))
-                Text("It stopped before the list was done. Resume skips the clips already renamed and finds the folder again if it moved.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Button("Dismiss") { model.dismissInterruptedRun() }
-            Button("Resume\(run.dry ? " (dry run)" : "")") { model.resumeInPlace() }.keyboardShortcut(.defaultAction)
+    /// Example queue for --render-preview (EXAMPLE DATA; never read from or written to disk).
+    static func queueMock(running: Bool) -> QueueState {
+        func it(_ id: String, _ name: String, _ path: String, _ mode: String, _ status: String, clips: Int,
+                extra: [String: Any] = [:]) -> QueueItem {
+            QueueItem(["id": id, "name": name, "paths": [path], "mode": mode, "status": status, "media_count": clips,
+                       "copy_count": clips, "transcribe": true].merging(extra) { $1 })
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
+        var q = QueueState()
+        q.state = running ? "running" : "idle"
+        q.alive = running
+        q.items = [
+            it("a1", "Windward Collectibles", "/Volumes/Lexar/DaVinci Resolve/Example Trip/Windward Collectibles", "in_place",
+               running ? "done" : "waiting", clips: 18, extra: ["needs_confirm": true, "batches": ["example-a1"],
+               "message": "Done (live): 18 renamed where they are, 0 need review — of 18 clip(s)."]),
+            it("b2", "Ranch Tour", "/Volumes/Lexar/DaVinci Resolve/Example Trip/Ranch Tour", "in_place",
+               running ? "running" : "waiting", clips: 52, extra: ["needs_confirm": true,
+               "progress": ["index": 21, "total": 52, "current": "CAM_20261010090412_0034_D.MP4", "step": "describe", "eta_seconds": 5520]]),
+            it("c3", "Retro Console Unboxing", "/Users/you/Desktop/Retro Console Unboxing", "copy", "waiting", clips: 7),
+            it("d4", "Vintage Show", "/Volumes/Lexar/DaVinci Resolve/Vintage Show", "in_place", running ? "paused" : "waiting",
+               clips: 12, extra: ["needs_confirm": true, "transcribe": false]),
+            it("e5", "Held Project", "/Volumes/Lexar/DaVinci Resolve/Held Project", "in_place", "refused", clips: 0,
+               extra: ["reason": "“Held Project” is on hold (hold_sources) — remove it from hold in Settings or config to process"]),
+        ]
+        return q
     }
 }

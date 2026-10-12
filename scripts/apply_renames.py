@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Apply proposed names IN PLACE inside inbox/ (live mode). Shared by run_pipeline.py (per clip, right after its
-sidecars are written), the web UI ("Apply proposed names") and this CLI.
+sidecars are written), ClipGauge and this CLI.
 
   python3 scripts/apply_renames.py --dry-run   # preview only: what would be renamed / marked needs-review
   python3 scripts/apply_renames.py             # apply (needs config dry_run false; refused while a pipeline run is active)
-  python3 scripts/apply_renames.py --json      # machine-readable summary (used by the web UI)
+  python3 scripts/apply_renames.py --json      # machine-readable summary (used by ClipGauge)
   python3 scripts/apply_renames.py --folder "Show 2026"        # apply; confident clips go into inbox/Show 2026/
   python3 scripts/apply_renames.py --move-into "Show 2026" [--dry-run]
                                                # move clips ALREADY renamed (still at inbox/ top level, per the
@@ -27,7 +27,7 @@ Rules
     anything outside processing/). The full transcript is already in the .json sidecar (transcript.segments);
     if it isn't, <new stem>.transcript.json/.txt are copied next to the video first. needs-review/failed clips
     keep their processing files. Disable with config "cleanup_processing_after_rename": false.
-  * Batch folder (optional, --folder NAME / run_pipeline.py --folder NAME / web UI checkbox): a confident clip is
+  * Batch folder (optional, --folder NAME / run_pipeline.py --folder NAME / ClipGauge queue): a confident clip is
     renamed straight into inbox/<NAME>/ (one os.rename, same volume) with its sidecars; _t02, _t03 … on a clash
     inside the folder. needs-review / failed clips stay at inbox/ top level with their original names. The folder
     name is validated by sanitize_folder_name (no / \\ or '..', no leading dot, trimmed, max 80 chars) and created
@@ -1083,7 +1083,7 @@ def move_summary_line(summary: dict) -> str:
 
 def run_move_into_folder(cfg: dict, folder: str, preview: bool = False, origin: str = "apply_renames",
                          stop=None) -> tuple[int, dict]:
-    """Locked wrapper used by the CLI / web UI: (exit code, summary or {'error'}). 3 = a pipeline run is active."""
+    """Locked wrapper used by the CLI / ClipGauge: (exit code, summary or {'error'}). 3 = a pipeline run is active."""
     from pipeline_lock import acquire_lock, lock_path, release_lock  # noqa: E402
 
     lock = None

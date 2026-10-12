@@ -20,6 +20,11 @@ line (progress events) and ends with {"event": "done", ...}.
   python3 scripts/clipgauge_cli.py bundle-scopes
   python3 scripts/clipgauge_cli.py bundle '{"scope": "inbox", "include_silent": false}'
   python3 scripts/clipgauge_cli.py note CLIP_ID           # a clip's notes as Markdown (Ask the Model context)
+  v0.8 queue: queue · queue-add '{"paths": [...], "mode": "copy"}' · queue-update '{"id": ID, "fields": {...}}' ·
+              queue-remove ID · queue-move ID INDEX · queue-clear [--all] · queue-skip ID ·
+              queue-start '{"dry_run": false, "confirm_resolve": true, "auto_bundle": true}' · queue-pause ·
+              queue-stop · queue-bundle '{"scope": "project|queue|everything", "id": ID}'
+  transcripts: transcripts-search WORDS · transcript CLIP_ID|PATH
 
 Safety: start/apply/move/undo/review-accept use the same guards as everywhere else (single-run lock, update lock,
 Resolve guard, held / Resolve-internal / Cloud-synced folders refused, never overwrite, every rename logged in
@@ -398,6 +403,56 @@ def cmd_review_accept(cfg: dict, args: list[str]) -> dict:
 
 # ------------------------------------------------------------------- main ----
 
+def cmd_queue(cfg: dict, cmd: str, rest: list[str]) -> dict:
+    """v0.8 multi-project queue + transcript search (scripts/project_queue.py)."""
+    import project_queue as pq
+    try:
+        if cmd == "queue":
+            return coded(200, pq.summary(cfg))
+        if cmd == "queue-add":
+            o = parse_opts(rest)
+            return coded(200, pq.add(cfg, [str(p) for p in o.get("paths") or []], o.get("mode")))
+        if cmd == "queue-update":
+            o = parse_opts(rest)
+            return coded(200, {"item": pq.update(cfg, str(o.get("id")), o.get("fields") or {})})
+        if cmd == "queue-remove":
+            pq.remove(cfg, rest[0])
+            return coded(200, pq.summary(cfg))
+        if cmd == "queue-move":
+            pq.move(cfg, rest[0], int(rest[1]))
+            return coded(200, pq.summary(cfg))
+        if cmd == "queue-clear":
+            n = pq.clear(cfg, finished_only="--all" not in rest)
+            return coded(200, {"removed": n, **pq.summary(cfg)})
+        if cmd == "queue-skip":
+            return coded(200, {"item": pq.skip(cfg, rest[0])})
+        if cmd == "queue-start":
+            return coded(*pq.start(cfg, parse_opts(rest)))
+        if cmd == "queue-options":
+            return coded(200, pq.set_options(cfg, parse_opts(rest)))
+        if cmd == "queue-pause":
+            return coded(200, pq.pause(cfg))
+        if cmd == "queue-stop":
+            return coded(200, pq.stop(cfg))
+        if cmd == "queue-bundle":
+            o = parse_opts(rest)
+            d = pq.read(cfg)
+            scope = o.get("scope") or "queue"
+            if scope == "project":
+                d["items"] = [i for i in d["items"] if i["id"] == o.get("id")]
+                scope = "queue"
+            d["options"]["bundle_scope"] = scope
+            return coded(200, {"message": pq._bundle(cfg, d)})
+        if cmd == "transcripts-search":
+            return coded(200, pq.search_transcripts(cfg, " ".join(rest)))
+        if cmd == "transcript":
+            j = pq.transcript(cfg, rest[0] if rest else "")
+            return coded(404 if j.get("error") else 200, j)
+    except (KeyError, ValueError, TimeoutError) as e:
+        return coded(400, {"error": str(e).strip("'\"")})
+    return coded(400, {"error": f"unknown queue command {cmd}"})
+
+
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -413,6 +468,8 @@ def main(argv: list[str]) -> int:
             res = coded(200, ra.list_inbox(cfg))
         elif cmd == "start":
             res = coded(*ra.start_pipeline(cfg, {**parse_opts(rest), "origin": "clipgauge"}))
+        elif cmd.startswith("queue") or cmd in ("transcripts-search", "transcript"):
+            res = cmd_queue(cfg, cmd, rest)
         elif cmd == "run-queue":
             import runqueue
             if "--dismiss" in rest:

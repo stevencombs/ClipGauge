@@ -11,7 +11,7 @@ script-writing bot can read and cite back to the exact video.
   options: --include-silent (full entries for clips with no speech) · --omit-silent (don't list them at all)
            --exclude-photos (leave stills out; by default photos are listed with the silent assets)
            --keep-repeats (don't collapse Whisper's repeated-line loops) · --dry-run (scan + print, write nothing)
-           --json (last stdout line = machine-readable summary, used by the web UI) · --out-dir DIR
+           --json (last stdout line = machine-readable summary, used by ClipGauge) · --out-dir DIR
 
 Output (default exports/ in the project folder, created on first use):
   exports/transcripts-<scope>-<YYYYMMDD-HHMM>.json   schema "ai-video-renamer.transcript-bundle" v1:
