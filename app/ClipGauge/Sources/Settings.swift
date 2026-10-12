@@ -783,6 +783,12 @@ struct SettingsView: View {
                                              set: { model.queueOptions(["auto_bundle": $0]) }))
                         .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
+                PrefRow(label: "Save transcript next to clips",
+                        detail: "After each project: <project>_transcripts.json/.md in its folder (copy also kept in exports/)") {
+                    Toggle("", isOn: Binding(get: { model.queue.saveNextToClips },
+                                             set: { model.queueOptions(["save_next_to_clips": $0]) }))
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }

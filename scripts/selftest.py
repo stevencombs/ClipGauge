@@ -3194,6 +3194,26 @@ class TestProjectQueue(unittest.TestCase):
         pq.remove(cfg, a[1]["id"])
         self.assertEqual(pq.read(cfg)["items"], [])
 
+    def test_transcript_saved_next_to_clips(self):
+        a = self.add(self.res / "Ranch Tour")
+        exp = self.tmp / "exports"
+        exp.mkdir()
+        (exp / "t.json").write_text("{}")
+        (exp / "t.md").write_text("# t")
+        (self.res / "Ranch Tour" / "Ranch Tour_transcripts.json").write_text("old")   # taken -> -2, never overwritten
+        with mock.patch("build_transcript_bundle.run", return_value={"json": str(exp / "t.json"), "md": str(exp / "t.md")}) as r, \
+             mock.patch("check_resolve.resolve_running", return_value=False):
+            out = self.pq.save_transcripts_next_to_clips(self.cfg, a[0])
+        self.assertEqual(r.call_args.kwargs["paths"], [str(self.res / "Ranch Tour")])
+        self.assertEqual([Path(w).name for w in out["written"]], ["Ranch Tour_transcripts-2.json", "Ranch Tour_transcripts-2.md"])
+        self.assertEqual((self.res / "Ranch Tour" / "Ranch Tour_transcripts.json").read_text(), "old")
+        self.assertTrue(self.pq.read(self.cfg)["options"]["save_next_to_clips"])
+        with mock.patch("check_resolve.resolve_running", return_value=True):
+            self.assertEqual(self.pq.save_transcripts_next_to_clips(self.cfg, a[0])["written"], [])
+        h = self.add(self.res / "Held Project")[0]
+        with mock.patch("check_resolve.resolve_running", return_value=False):
+            self.assertEqual(self.pq.save_transcripts_next_to_clips(self.cfg, h)["written"], [])
+
     def test_held_folder_is_not_copied_either(self):
         a = self.add(self.res / "Held Project")
         with self.assertRaises(ValueError):

@@ -69,6 +69,7 @@ struct QueueState: Equatable {
     var alive = false
     var dryRun = false
     var autoBundle = false
+    var saveNextToClips = true
     var bundleScope = "queue"
     var items: [QueueItem] = []
 
@@ -81,6 +82,7 @@ struct QueueState: Equatable {
         let o = d["options"] as? [String: Any] ?? [:]
         q.dryRun = (o["dry_run"] as? Bool) ?? false
         q.autoBundle = (o["auto_bundle"] as? Bool) ?? false
+        q.saveNextToClips = (o["save_next_to_clips"] as? Bool) ?? true
         q.bundleScope = o["bundle_scope"] as? String ?? "queue"
         q.items = ((d["items"] as? [[String: Any]]) ?? []).map(QueueItem.init)
         if (q.state == "running" || q.state == "pausing") && !q.alive {

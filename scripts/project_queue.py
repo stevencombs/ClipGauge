@@ -62,7 +62,8 @@ def path(cfg: dict) -> Path:
 
 def empty() -> dict:
     return {"schema": SCHEMA, "state": "idle", "pid": None, "confirm_resolve": False, "message": "",
-            "options": {"dry_run": False, "auto_bundle": False, "bundle_scope": "queue"}, "items": [],
+            "options": {"dry_run": False, "auto_bundle": False, "bundle_scope": "queue", "save_next_to_clips": True},
+            "items": [],
             "updated_at": _now()}
 
 
@@ -318,7 +319,7 @@ def start(cfg: dict, opts: dict) -> tuple[int, dict]:
                      "needs_confirm": d["needs_confirm"]}
     with locked(cfg) as q:
         q["options"]["dry_run"] = bool(opts.get("dry_run"))
-        for k in ("auto_bundle", "bundle_scope"):
+        for k in ("auto_bundle", "bundle_scope", "save_next_to_clips"):
             if k in opts:
                 q["options"][k] = opts[k]
         q["confirm_resolve"] = bool(opts.get("confirm_resolve")) or q.get("confirm_resolve", False)
@@ -345,7 +346,7 @@ def start(cfg: dict, opts: dict) -> tuple[int, dict]:
 
 def set_options(cfg: dict, opts: dict) -> dict:
     with locked(cfg) as d:
-        for k in ("auto_bundle", "bundle_scope", "dry_run"):
+        for k in ("auto_bundle", "bundle_scope", "dry_run", "save_next_to_clips"):
             if k in opts:
                 d["options"][k] = opts[k]
     return summary(cfg)
@@ -488,11 +489,14 @@ def _run_project(cfg: dict, it: dict) -> str:
         time.sleep(2)
         st = _status(cfg)
         m = re.search(r"\((\d+)/(\d+)\)", str(st.get("message") or ""))
+        idx, tot = st.get("clip_index"), st.get("clip_total")   # status.json fields; the message is a fallback
+        if not (isinstance(idx, int) and isinstance(tot, int)) and m:
+            idx, tot = int(m.group(1)), int(m.group(2))
         with locked(cfg) as d:
             x = _find(d, it["id"])
-            if m:
-                total = int(m.group(2))
-                x["progress"] = {"step": st.get("step"), "index": int(m.group(1)), "total": total,
+            if isinstance(idx, int) and isinstance(tot, int):
+                total = tot
+                x["progress"] = {"step": st.get("step"), "index": idx, "total": total,
                                  "current": Path(str(st.get("current_file") or "")).name or None,
                                  "eta_seconds": st.get("eta_seconds")}
             if x.get("skip_requested") and not skipped:
@@ -520,7 +524,70 @@ def _run_project(cfg: dict, it: dict) -> str:
         if x["status"] in FINISHED:
             x["finished_at"] = _now()
         nxt = "paused" if rc == 4 else ("stopped" if rc == 130 and not skipped else "next")
+        save = (x["status"] in ("done", "done_with_errors") and not q["options"].get("dry_run")
+                and not bool(cfg.get("dry_run", False)) and d["options"].get("save_next_to_clips", True) is not False)
+        done_it = dict(x)
+    if save:
+        try:
+            res = save_transcripts_next_to_clips(cfg, done_it)
+        except Exception as e:  # a bundle problem never fails the project
+            res = {"written": [], "message": f"Transcript next to clips failed: {e}"}
+        with locked(cfg) as d:
+            x = _find(d, it["id"])
+            x["transcript_files"] = res.get("written", [])
+            x["transcript_message"] = res.get("message", "")
     return nxt
+
+
+def project_dirs(cfg: dict, it: dict) -> list[str]:
+    """Folders a project processed: in place -> the clips' folder(s); copy -> its inbox/<project> folder."""
+    import notes_store as ns
+    if it.get("mode") == "copy":
+        return [str(ns.inbox_dir(cfg) / it["name"])]
+    out: list[str] = []
+    for p in it.get("paths", []):
+        d = str(Path(p) if Path(p).is_dir() else Path(p).parent)
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def _free_stem(d: Path, stem: str) -> str:
+    n, s = 1, stem
+    while (d / f"{s}.json").exists() or (d / f"{s}.md").exists():
+        n += 1
+        s = f"{stem}-{n}"
+    return s
+
+
+def save_transcripts_next_to_clips(cfg: dict, it: dict) -> dict:
+    """Build the project's transcript bundle (the exports/ copy is written as usual) and put a copy into each folder
+    the project processed as '<project>_transcripts.json/.md' (-2, -3 ... if taken; nothing is ever overwritten).
+    Never while Resolve is open; held / protected folders are left alone; clips are not touched."""
+    import shutil
+    import build_transcript_bundle as tb
+    import inplace
+    from check_resolve import resolve_running
+    if resolve_running():
+        return {"written": [], "message": "Transcript next to clips skipped: DaVinci Resolve is open."}
+    sc = inplace.sort_cfg(cfg)
+    held = {inplace._nfc(h) for h in (sc.get("hold_sources") or []) + (sc.get("protected_dirs") or [])}
+    dirs = [d for d in project_dirs(cfg, it) if Path(d).is_dir()
+            and not any(inplace._nfc(part) in held for part in Path(d).parts)]
+    if not dirs:
+        return {"written": [], "message": "Transcript next to clips: no folder to write into."}
+    s = tb.run(cfg, paths=dirs)
+    name = re.sub(r"[/:\\\x00-\x1f]+", "-", str(it.get("name") or "")).strip(" .-") or "project"
+    written: list[str] = []
+    for d in dirs:
+        stem = _free_stem(Path(d), f"{name}_transcripts")
+        for src, ext in ((s["json"], ".json"), (s["md"], ".md")):
+            dst = Path(d) / f"{stem}{ext}"
+            with open(src, "rb") as fi, open(dst, "xb") as fo:   # "x": fail rather than overwrite
+                shutil.copyfileobj(fi, fo)
+            written.append(str(dst))
+    return {"written": written, "exports": [s["json"], s["md"]],
+            "message": f"Transcript saved next to clips: {', '.join(Path(w).name for w in written)}"}
 
 
 def _bundle(cfg: dict, d: dict) -> str:

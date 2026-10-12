@@ -615,3 +615,12 @@ Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot*
   [paypal.me/stevencombs](https://paypal.me/stevencombs) in your browser. ClipGauge sends nothing.
 
 The same links are in ClipGauge under **Settings › About**.
+
+### What's new in ClipGauge v0.8.1: transcript saved next to the clips
+
+- After each queue project finishes (not in a dry run), its transcript bundle is written **into the folder it
+  processed** as `<project>_transcripts.json` and `.md` (for copy-to-inbox projects, `inbox/<project>/`). An existing
+  file is never overwritten (`-2`, `-3` … are added). The usual copy in `exports/` is kept.
+- On by default; Settings › Queue › **Save transcript next to clips** turns it off. Skipped while DaVinci Resolve is
+  open and for held or protected folders; clips are never touched.
+- The queue's per-project progress now reads the clip count from `status.json` (it stayed empty in 0.8.0).
