@@ -2,7 +2,7 @@
 
 [![Tip via PayPal](https://img.shields.io/badge/Tip%20via-PayPal-00457C?logo=paypal&logoColor=white)](https://paypal.me/stevencombs) [![YouTube @retroCombs-Tech](https://img.shields.io/badge/YouTube-%40retroCombs--Tech-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@retroCombs-Tech)
 
-Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon with **Ollama** VLMs (clip description) and **whisper.cpp** (speech-to-text). The entire tree lives on this ExFAT Lexar drive so you can move it between machines (Air ↔ Pro) without reinstalling models into the system disk.
+Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon with **Ollama** VLMs (clip description) and **whisper.cpp** (speech-to-text). The entire tree lives in one folder on any internal, external or network drive; on an external drive you can move it between Macs without reinstalling models.
 
 ## Safety defaults
 
@@ -10,7 +10,7 @@ Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon wit
   - `true` — dry run: proposals, sidecars (in `logs/dry-run/`) and the report only; nothing is renamed.
   - `false` — **live**: each confident clip is **renamed in place inside `inbox/`** right after it is processed (the new name is the "done" marker); low-confidence / failed clips keep their original name and are marked *needs review*. Every action is logged to `logs/rename-log.jsonl` and can be undone (`scripts/undo_renames.py`). Nothing is ever overwritten and nothing outside `inbox/` is ever renamed.
 - **`resolve_guard: true`** — pipeline refuses to run while DaVinci Resolve is open (protects Media/project folders).
-- Does **not** touch `DaVinci Resolve/`, `DaVinci Resolve Media/`, or other existing Lexar project trees. You copy clips into `inbox/` yourself.
+- Does **not** touch `DaVinci Resolve/`, `DaVinci Resolve Media/`, or other existing project trees on the drive. You copy clips into `inbox/` yourself.
 
 ## Folder roles
 
@@ -26,17 +26,34 @@ Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon wit
 | `scripts/` | Pipeline code (Python). |
 | `config/` | `config.json`, `ram-tiers.json`. |
 
-## ExFAT / Ollama models
+## Where to put the project folder
 
-Lexar is **ExFAT → no symlinks**. Do not symlink `~/.ollama/models` into this tree.
+ClipGauge's `AI-Video-Renamer/` folder can live on **any drive**: the Mac's internal disk, an external SSD (USB/Thunderbolt), or a network share (SMB/NAS). No particular brand is required. Pick a location with:
+
+- **Space:** ~10 GB for the AI models, plus room for your clips.
+- **Speed:** a fast local or external SSD is best; models load and frames extract much faster than over Wi-Fi. Network drives work but are slower and must stay mounted during a run.
+- **Portability:** put it on an external drive if you want to move it between Macs without reinstalling models.
+
+Throughout these docs, `<your drive>/AI-Video-Renamer` stands for wherever you put it, e.g. `~/AI-Video-Renamer` (internal), `/Volumes/<DriveName>/AI-Video-Renamer` (external or network). Choose or create it in **Setup › Choose or Create…**, or set `AI_VIDEO_RENAMER_ROOT`.
+
+**exFAT drives:** don't create symlinks inside the project; exFAT can't store them.
+
+### Recommended drive for Mac laptops
+
+For a MacBook, a compact USB-C SSD keeps the project portable and fast: [recommended drive](https://amzn.to/4ihwdRF).
+*Affiliate link: I may earn a commission at no cost to you.*
+
+## Ollama models
+
+If the drive is exFAT, it can't hold symlinks: do not symlink `~/.ollama/models` into this tree.
 
 Set:
 
 ```bash
-export OLLAMA_MODELS="/Volumes/Lexar/AI-Video-Renamer/models"
+export OLLAMA_MODELS="<your drive>/AI-Video-Renamer/models"
 ```
 
-Use `scripts/setup-ollama-env.sh` (see `INSTALL.md`). Pull models only after Ollama is installed and this env is set so weights land on Lexar, not the Mac internal SSD.
+Use `scripts/setup-ollama-env.sh` (see `INSTALL.md`). Pull models only after Ollama is installed and this env is set so weights land in the project's `models/` folder, not the Mac internal SSD.
 
 ## Naming pattern
 
@@ -76,7 +93,7 @@ Stills in `inbox/` are picked up by the same run (and ClipGauge's Add Clips / dr
 `--dry-run` (run_pipeline.py) forces a dry run for one invocation even when `dry_run` is false in config — nothing is renamed, sidecars go to `logs/dry-run/<folder>/`, the notes preview to `notes/dry-run/` (never `notes/clips/`). `--video` can be repeated:
 
 ```bash
-python3 scripts/run_pipeline.py --dry-run --video "/Volumes/Lexar/DaVinci Resolve/Archive Footage/PXL_20260101_120000000.jpg"
+python3 scripts/run_pipeline.py --dry-run --video "<your drive>/DaVinci Resolve/Archive Footage/PXL_20260101_120000000.jpg"
 ```
 
 ### Central notes store (`notes/clips/`)
@@ -93,7 +110,7 @@ Moved a clip yourself in Finder (e.g. into a Resolve project folder)? The store 
 
 **Sidecars next to clips are optional:** `sidecar.write_next_to_clip` (default `false`; UI checkbox *Write .json/.md notes next to each clip*, stored in `config.json`, applies from the next run). When on, everything behaves as before (`<stem>.json`/`.md` beside the clip, moved/renamed with it). Skip rules, Apply, Move-into-folder, undo and processing cleanup all work without sidecars (they read the store; cleanup puts a missing full transcript into the store instead of copying `.transcript.*` files beside the clip).
 
-**One-time import of existing sidecars:** `python3 scripts/import_sidecars_to_store.py [--dry-run] [-v]` scans the whole Lexar (hidden folders, Resolve caches, `models/`, `processing/`, `logs/`, `exports/`, `notes/` skipped), copies every renamer sidecar into the store with the clip's current location (video with the same name beside it, else the one video of the same byte size in that folder), and is safe to re-run. Sidecars are left in place. `--remove-sidecars` (optional, not run by default) **moves** each imported `.json`/`.md` (+ `.transcript.*` and `._` companions) into `logs/backups/sidecars-<timestamp>/<path relative to the Lexar root>/` — nothing is deleted.
+**One-time import of existing sidecars:** `python3 scripts/import_sidecars_to_store.py [--dry-run] [-v]` scans the whole drive (hidden folders, Resolve caches, `models/`, `processing/`, `logs/`, `exports/`, `notes/` skipped), copies every renamer sidecar into the store with the clip's current location (video with the same name beside it, else the one video of the same byte size in that folder), and is safe to re-run. Sidecars are left in place. `--remove-sidecars` (optional, not run by default) **moves** each imported `.json`/`.md` (+ `.transcript.*` and `._` companions) into `logs/backups/sidecars-<timestamp>/<path relative to the drive root>/` — nothing is deleted.
 
 ### Sidecar location (when sidecars are written)
 
@@ -174,14 +191,14 @@ Starts a detached waiter (new session, `caffeinate -i`, log `logs/auto-apply-<ti
 ## Quick start (after INSTALL.md)
 
 ```bash
-cd /Volumes/Lexar/AI-Video-Renamer
+cd <your drive>/AI-Video-Renamer
 export OLLAMA_MODELS="$PWD/models"
 python3 scripts/detect_ram.py
 python3 scripts/check_resolve.py && echo "Resolve is off"
 python3 scripts/selftest.py -v          # offline unit tests, no downloads
 
 # one clip (read-only; sidecars land in logs/dry-run/):
-python3 scripts/run_pipeline.py --video "/Volumes/Lexar/DaVinci Resolve/E-Reader Review/x4 unboxing.MP4" --reuse-frames
+python3 scripts/run_pipeline.py --video "<your drive>/DaVinci Resolve/E-Reader Review/x4 unboxing.MP4" --reuse-frames
 # or everything in inbox/:
 python3 scripts/run_pipeline.py --all
 ```
@@ -226,7 +243,7 @@ row** each; clips inside the DaVinci Resolve folder need **one confirmation per 
 is open, and the queue pauses before the next project if Resolve opens; dates are kept; nothing is overwritten.
 
 ```bash
-python3 scripts/project_queue.py add "/Volumes/Lexar/DaVinci Resolve/Some Project"   # add a project from Terminal
+python3 scripts/project_queue.py add "<your drive>/DaVinci Resolve/Some Project"   # add a project from Terminal
 python3 scripts/project_queue.py show                                               # the queue as JSON
 python3 scripts/clipgauge_cli.py queue-start '{"dry_run": true}'                    # run it (dry run)
 ```
@@ -245,7 +262,7 @@ The legacy web UI (`scripts/web_ui.py`, port 8765, its `ui` config keys and laun
 ```bash
 python3 scripts/build_transcript_bundle.py                         # all of inbox/ (incl. batch subfolders)
 python3 scripts/build_transcript_bundle.py --folder "Show 2026"    # just inbox/Show 2026/
-python3 scripts/build_transcript_bundle.py --path "DaVinci Resolve/Retro Game Expo"   # any folder on the Lexar
+python3 scripts/build_transcript_bundle.py --path "DaVinci Resolve/Retro Game Expo"   # any folder on the drive
 python3 scripts/build_transcript_bundle.py --everywhere            # inbox/ + DaVinci Resolve, DaVinci Resolve Media, Video Assets
 python3 scripts/build_transcript_bundle.py --date 2026-10-04       # only clips recorded that day (combines with the above)
 #  --include-silent  full entries for clips with no speech (default: brief list at the end)
@@ -260,7 +277,7 @@ Clips you moved into a Resolve project folder are still found (store path, else 
 
 Output in **`exports/`** (created on first use; never overwritten — a second export in the same minute gets `-2`):
 
-- `transcripts-<scope>-<YYYYMMDD-HHMM>.json` — schema `ai-video-renamer.transcript-bundle` v1: `generated_at`, `scope`, `counts` (clips scanned / with speech / silent / lines), `total_speech_seconds`, a `how_to_use` note for the AI, `citation_format`, then `clips[]` in **recording-time order**. Each clip: `file`, `path` (relative to the Lexar root), `original_name` (camera file), `recorded_at` (+ `_utc`, and where the time came from), `duration`, `clip_type`, `summary`, `keywords`, `on_screen_text`, `subjects`, `objects`, `has_speech`, `speech_seconds`, `transcript` (full text) and `segments[]` = `{id: "<file>#0003", start, end, start_ts: "HH:MM:SS.mmm", end_ts, text}`. Clips without speech are listed in `silent_clips[]` (file, path, duration, type, summary, keywords, on-screen text) so the bot can still suggest them as b-roll.
+- `transcripts-<scope>-<YYYYMMDD-HHMM>.json` — schema `ai-video-renamer.transcript-bundle` v1: `generated_at`, `scope`, `counts` (clips scanned / with speech / silent / lines), `total_speech_seconds`, a `how_to_use` note for the AI, `citation_format`, then `clips[]` in **recording-time order**. Each clip: `file`, `path` (relative to the drive root), `original_name` (camera file), `recorded_at` (+ `_utc`, and where the time came from), `duration`, `clip_type`, `summary`, `keywords`, `on_screen_text`, `subjects`, `objects`, `has_speech`, `speech_seconds`, `transcript` (full text) and `segments[]` = `{id: "<file>#0003", start, end, start_ts: "HH:MM:SS.mmm", end_ts, text}`. Clips without speech are listed in `silent_clips[]` (file, path, duration, type, summary, keywords, on-screen text) so the bot can still suggest them as b-roll.
 - `transcripts-<scope>-<YYYYMMDD-HHMM>.md` — the same grouped by clip (heading = file name, then path · recorded time · length · type · camera file, summary, on-screen text, keywords) with one `- [start → end] #NNNN text` line per segment; compact enough to paste into a chat bot.
 
 Clean-up rules: segments that are only Whisper markers (`[BLANK_AUDIO]`, `[Music]`, `(wind blowing)`, `>> [INAUDIBLE]`, `♪`) are dropped; `[BLANK_AUDIO]` inside a line is removed; other inline markers such as `[INAUDIBLE]` or `(chuckles)` stay. A leading `>>` (speaker change) is stripped and kept as `speaker_change: true`. Identical consecutive lines — Whisper's hallucination loop over wind/water noise — become one segment with `"repeats": n` and a note on the clip. Segment numbers are 1-based over the kept lines, so ids are stable for the same sidecar and options; `whisper_index` points back into the sidecar's own segment list.
@@ -293,7 +310,7 @@ Read-only for media: the script only reads sidecars and writes the two export fi
 | `sidecar.dry_run_dir` | `logs/dry-run` | sidecar folder while dry-run (also holds `report.jsonl`) |
 | `sidecar.protected_path_markers` | DaVinci Resolve paths | never write sidecars inside these |
 | `transcripts.exports_dir` | `exports` | where transcript bundles are written (optional key) |
-| `transcripts.search_roots` | `["DaVinci Resolve", "DaVinci Resolve Media", "Video Assets"]` | Lexar folders (relative to the drive root) searched by `--everywhere` and listed in the UI dropdown (optional key) |
+| `transcripts.search_roots` | `["DaVinci Resolve", "DaVinci Resolve Media", "Video Assets"]` | folders on the drive (relative to the drive root) searched by `--everywhere` and listed in the UI dropdown (optional key) |
 | `naming.*` | | `lowercase_ext`, slug max lengths, fallbacks, `take_suffix_max`, `strip_clip_type_words` (drop e.g. `-unboxing` from project/subject slugs) |
 
 ## RAM tiers
@@ -330,7 +347,7 @@ your settings over. The menu bar shows the mark, plus a green `NN%` while a run 
   - **Process in place:** renames clips where they are, no copy (`run_pipeline.py --source PATH`). Refused: folders on
     hold (Held Project, Archive Footage, Old Card Dump, anywhere in the path), DaVinci Resolve's own
     folders (BackUps, CacheClip, ProxyMedia…), Blackmagic Cloud-synced projects, iCloud/Dropbox/Google Drive/OneDrive
-    folders and the project's own folders. Inside **/Volumes/Lexar/DaVinci Resolve** it asks first, because renaming
+    folders and the project's own folders. Inside the **DaVinci Resolve** folder it asks first, because renaming
     media Resolve already imported makes it go offline (`--confirm-resolve`). Logged and undoable like inbox renames.
 - **Start inbox / Stop** and **Dry run (preview only)** in the top bar. Runs start detached (new session +
   `caffeinate -i`) and respect the run lock, the update lock and the Resolve guard.
@@ -352,14 +369,14 @@ It never renames anything itself: every action runs `scripts/clipgauge_cli.py` (
 
 Guards and notices:
 
-- **Lexar not connected:** the menu bar shows `–` and the controls are greyed out.
+- **Drive not connected:** the menu bar shows `–` and the controls are greyed out.
 - **DaVinci Resolve is open:** the mark turns orange, the popover shows "Paused, Resolve is open" and Start is disabled. Resolve is detected by bundle id `com.blackmagic-design.DaVinciResolve*`.
 - **Notifications:** you get one when a run ends and when a clip needs review. If macOS notifications aren't allowed, it falls back to a basic AppleScript notification. (New bundle id in v0.6: macOS asks once again.)
 
 - **Launch:** double-click `ClipGauge.app`. It's ad-hoc signed and built on this Mac, so it normally opens directly. If Gatekeeper complains (for example after copying it from another Mac), right-click it, choose **Open**, then **Open** again.
 - **Finding it:** if the menu bar is full, macOS may tuck the icon behind the `»` overflow, like GrokGauge. ⌘-drag it into the visible area.
-- **Project folder:** the app finds `AI-Video-Renamer/` next to itself, so it moves with the drive to the Pro. If you copy it to /Applications (needed for **Open at login**), it finds the project on any mounted drive (`/Volumes/*/AI-Video-Renamer`). Set `CLIPGAUGE_ROOT` to override (the old `CLIPGUAGE_ROOT` still works).
-- **Ejecting the Lexar:** quit ClipGauge first while it runs from the Lexar. A running app keeps the drive busy. Running it from /Applications avoids this.
+- **Project folder:** the app finds `AI-Video-Renamer/` next to itself, so it moves with the drive to another Mac. If you copy it to /Applications (needed for **Open at login**), it finds the project on any mounted drive (`/Volumes/*/AI-Video-Renamer`). Set `CLIPGAUGE_ROOT` to override (the old `CLIPGUAGE_ROOT` still works).
+- **Ejecting the drive:** quit ClipGauge first while it runs from that drive. A running app keeps the drive busy. Running it from /Applications avoids this.
 - **Rebuild:** run `app/ClipGauge/build.sh`. It needs only the Xcode Command Line Tools (swiftc). Sources are in `app/ClipGauge/Sources/`, and the build is ad-hoc signed. `UNIVERSAL=1` adds x86_64.
 - **Debug:**
   - `ClipGauge.app/Contents/MacOS/ClipGauge --print-state` prints what the app sees.
@@ -380,7 +397,7 @@ Guards and notices:
   - **Install Missing…** opens `scripts/setup-mac.sh` in Terminal, which asks before every install or download. `scripts/setup-mac.sh --check` only reports.
   - Setup opens by itself on a Mac with no project folder.
 - **Portable engine.** The scripts are bundled inside the app at `Contents/Resources/engine`, so **Setup › Choose or Create…** can make a new `AI-Video-Renamer/` project on any drive. New projects start in dry-run mode. Existing files are never overwritten.
-  - The scripts now find the project from their own location instead of a hard-coded `/Volumes/Lexar/...`. Override it with `AI_VIDEO_RENAMER_ROOT`.
+  - The scripts now find the project from their own location instead of a hard-coded drive path. Override it with `AI_VIDEO_RENAMER_ROOT`.
 - **Docs:**
   - `SETUP.md`: setup guide for new users.
   - `docs/DISTRIBUTION.md`: draft plan for a public release. Nothing has been published.
@@ -433,7 +450,7 @@ python3 scripts/clipgauge_cli.py status            # run/update locks as ClipGau
 
 ### What's new in ClipGauge v0.4: Sort into Projects
 
-**Gear › Sort into Projects…** (or the **Sort into Projects…** button in the popover) files clips into DaVinci Resolve projects on the Lexar.
+**Gear › Sort into Projects…** (or the **Sort into Projects…** button in the popover) files clips into DaVinci Resolve projects on the drive.
 
 **Layout.** Projects live directly in `DaVinci Resolve/<Project>/` with these folders:
 

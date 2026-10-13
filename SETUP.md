@@ -19,7 +19,7 @@ Low-confidence clips keep their original name and are flagged **needs review**.
 |---|---|---|
 | Mac | Apple silicon (M1 or later) recommended, macOS 14 Sonoma or newer | Intel works, but the vision model is very slow |
 | Memory | 16 GB | 16 GB uses the **Air tier** (qwen2.5vl:7b + whisper base.en). 48 GB or more uses the **Pro tier** (larger models) |
-| Disk | ~10 GB free for models, plus room for your clips | The project folder can live on an external drive (APFS, exFAT or HFS+) |
+| Disk | ~10 GB free for models, plus room for your clips | The project folder can live on any internal, external or network drive (APFS, exFAT or HFS+) |
 | Software | Homebrew, Python 3.10+, ffmpeg, Ollama, whisper.cpp | **Setup › Install Missing…** installs these with your approval |
 
 ## 1. Open ClipGauge
@@ -36,7 +36,7 @@ ClipGauge appears in the menu bar as a small gauge with a ▶︎ inside. On a cr
 
 On a Mac with no project folder yet, ClipGauge opens **Setup** automatically. Later you can reach it from the gear in the popover, then **Setup…**.
 
-- **Existing project:** click **Choose or Create…** and pick the `AI-Video-Renamer` folder, for example on an external drive.
+- **Existing project:** click **Choose or Create…** and pick the `AI-Video-Renamer` folder, on any internal, external or network drive.
 - **New project:** pick any folder or drive. ClipGauge creates `AI-Video-Renamer/` there, containing:
   - `scripts/`: the renamer, copied from inside the app.
   - `config/`: settings. New projects start in **dry-run** mode, so nothing is renamed.
@@ -139,6 +139,8 @@ output format. The popover shows **Instructions: Active** while any of it is set
 - **DaVinci Resolve:** processing won't start while Resolve is open. ClipGauge shows *Paused, Resolve is open*.
 - **Unreadable clips:** an empty or interrupted recording (for example a 1 KB MP4) is marked **needs review** with the reason, and the run carries on.
 - **External drives:** quit ClipGauge before ejecting the drive it runs from, or copy ClipGauge to /Applications. From there it finds the project on any connected drive, and **Open at login** works.
+- **Network drives:** work, but are slower; keep the share mounted during a run.
+- **Recommended drive for Mac laptops:** [a compact USB-C SSD](https://amzn.to/4ihwdRF). *Affiliate link: I may earn a commission at no cost to you.*
 - **exFAT drives:** don't create symlinks inside the project. exFAT can't store them.
 - **Status from Terminal:** `python3 scripts/status.py show`.
 
