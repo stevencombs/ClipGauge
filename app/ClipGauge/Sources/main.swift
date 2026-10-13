@@ -592,7 +592,7 @@ enum CLI {
         }
         if let e = mock.plan?.groups.first(where: { !$0.splitParts.isEmpty }) {
             mock.edits[e.id]?.split = true
-            mock.edits["g2"]?.name = "Waikiki Sunset"
+            mock.edits["g2"]?.name = "Sunset Video"
             mock.edits["g4"]?.include = false
             ok = renderView(SortView(sort: mock, model: m, scrolls: false), scheme: .dark, to: dir.appendingPathComponent("sort-mock-edited-dark.png")) && ok
         }
@@ -801,11 +801,11 @@ enum CLI {
             ok = renderView(MainView(main: res, model: m).frame(width: 980, height: 620), scheme: scheme,
                             to: dir.appendingPathComponent("\(prefix)main-results-\(name).png")) && ok
         }
-        res.search = "ranch tour"
-        res.hits = [["file": "20261010_ranch_guide-welcome_talking-head.mp4", "start": NSNumber(value: 4.2),
-                     "text": "Welcome to the ranch tour, everybody — stay with your guide.", "path": "/Volumes/Lexar/x.mp4"],
-                    ["file": "20261010_ranch_zipline-briefing_aroll.mp4", "start": NSNumber(value: 71.0),
-                     "text": "The ranch tour continues past the zipline platform.", "path": "/Volumes/Lexar/y.mp4"]]
+        res.search = "video project"
+        res.hits = [["file": "20261010_video-project_host-welcome_talking-head.mp4", "start": NSNumber(value: 4.2),
+                     "text": "Welcome to the video project, everybody — stay with the camera.", "path": "/Volumes/Lexar/x.mp4"],
+                    ["file": "20261010_video-project_scene-briefing_aroll.mp4", "start": NSNumber(value: 71.0),
+                     "text": "The video project continues to the next scene.", "path": "/Volumes/Lexar/y.mp4"]]
         ok = renderView(MainView(main: res, model: m).frame(width: 980, height: 560), scheme: .dark,
                         to: dir.appendingPathComponent("\(prefix)main-results-search-dark.png")) && ok
         let saved = m.queue

@@ -616,6 +616,11 @@ Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot*
 
 The same links are in ClipGauge under **Settings › About**.
 
+### What's new in ClipGauge v0.8.2: generic sample data
+
+- The built-in preview and sample data now use generic example projects (such as "Video Project") and generic
+  folder paths (such as `Videos/Video Project`) instead of real place names. No change to how ClipGauge works.
+
 ### What's new in ClipGauge v0.8.1: transcript saved next to the clips
 
 - After each queue project finishes (not in a dry run), its transcript bundle is written **into the folder it

@@ -937,10 +937,10 @@ extension PreviewData {
         q.state = running ? "running" : "idle"
         q.alive = running
         q.items = [
-            it("a1", "Windward Collectibles", "/Volumes/Lexar/DaVinci Resolve/Example Trip/Windward Collectibles", "in_place",
+            it("a1", "Collectibles Review", "/Volumes/Lexar/DaVinci Resolve/Videos/Collectibles Review", "in_place",
                running ? "done" : "waiting", clips: 18, extra: ["needs_confirm": true, "batches": ["example-a1"],
                "message": "Done (live): 18 renamed where they are, 0 need review — of 18 clip(s)."]),
-            it("b2", "Ranch Tour", "/Volumes/Lexar/DaVinci Resolve/Example Trip/Ranch Tour", "in_place",
+            it("b2", "Video Project", "/Volumes/Lexar/DaVinci Resolve/Videos/Video Project", "in_place",
                running ? "running" : "waiting", clips: 52, extra: ["needs_confirm": true,
                "progress": ["index": 21, "total": 52, "current": "CAM_20261010090412_0034_D.MP4", "step": "describe", "eta_seconds": 5520]]),
             it("c3", "Retro Console Unboxing", "/Users/you/Desktop/Retro Console Unboxing", "copy", "waiting", clips: 7),

@@ -2649,8 +2649,8 @@ def _sort_fixture(tmp: Path) -> dict:
     clip(dump, "CAM_20261009093100_0002_D.MP4", "talking-head", 0.9, "gl-inet-router", router, "Talking about the router.")
     clip(dump, "CAM_20261009093500_0003_D.MP4", "broll", 0.85, "gl-inet-router", router, "Router ports close-up.")
     clip(dump, "CAM_20261009094000_0004_D.MP4", "menu", 0.4, "gl-inet-router", router, "Admin web page, blurry.")
-    clip(dump, "CAM_20261009150000_0005_D.MP4", "broll", 0.9, "waikiki-beach", beach, "Waves rolling onto the beach.")
-    clip(dump, "CAM_20261009151000_0006_D.MP4", "broll", 0.9, "waikiki-beach", beach, "Sunset over the ocean.")
+    clip(dump, "CAM_20261009150000_0005_D.MP4", "broll", 0.9, "video-project", beach, "Waves rolling onto the beach.")
+    clip(dump, "CAM_20261009151000_0006_D.MP4", "broll", 0.9, "video-project", beach, "Sunset over the ocean.")
     (dump / "CAM_20261009151500_0007_D.jpg").write_bytes(b"jpg")
     (dump / "CAM_20261009151000_0006_D.json").write_text("{}")   # sidecar next to a clip -> _Notes
     night = rr / "Retro Games Night"
@@ -2784,7 +2784,7 @@ class TestSortProjects(unittest.TestCase):
         self.assertTrue(by["CAM_20261009093500_0003_D.MP4"]["dest"].startswith(str(self.rr / "GL iNet BE3600" / "B-Roll")))
         self.assertIsNone(g2["merge_into"])
         self.assertFalse(g2["existing"])
-        self.assertEqual(g2["project"], "Waikiki Beach")
+        self.assertEqual(g2["project"], "Video Project")
         by2 = {i["name"]: i for i in g2["items"]}
         self.assertEqual(by2["CAM_20261009151500_0007_D.jpg"]["bucket"], "Images")
         self.assertEqual(by2["CAM_20261009151000_0006_D.json"]["bucket"], "_Notes")
@@ -3069,24 +3069,24 @@ class TestRunQueue(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.cfg = {"logs_dir": str(self.tmp / "logs")}
         self.res = self.tmp / "DaVinci Resolve"
-        (self.res / "Ranch Tour").mkdir(parents=True)
+        (self.res / "Video Project").mkdir(parents=True)
         for n in ("a.mp4", "b.mp4", "c.mp4"):
-            (self.res / "Ranch Tour" / n).write_bytes(b"x" * 10)
+            (self.res / "Video Project" / n).write_bytes(b"x" * 10)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_relocate_after_folder_move(self):
         import runqueue
-        old = self.res / "Ranch Tour" / "b.mp4"
+        old = self.res / "Video Project" / "b.mp4"
         (self.res / "Trip").mkdir()
-        os.rename(self.res / "Ranch Tour", self.res / "Trip" / "Ranch Tour")
+        os.rename(self.res / "Video Project", self.res / "Trip" / "Video Project")
         cache = {}
         q = runqueue.relocate(old, 10, None, is_dir=False, cache=cache)
-        self.assertEqual(q, self.res / "Trip" / "Ranch Tour" / "b.mp4")
+        self.assertEqual(q, self.res / "Trip" / "Video Project" / "b.mp4")
         # the next clip from the same folder resolves through the cache
-        self.assertEqual(runqueue.relocate(self.res / "Ranch Tour" / "c.mp4", 10, None, cache=cache),
-                         self.res / "Trip" / "Ranch Tour" / "c.mp4")
+        self.assertEqual(runqueue.relocate(self.res / "Video Project" / "c.mp4", 10, None, cache=cache),
+                         self.res / "Trip" / "Video Project" / "c.mp4")
         self.assertIsNone(runqueue.relocate(old, 11, None, is_dir=False))  # size differs: not the same clip
 
     def test_relocate_ambiguous_is_none(self):
@@ -3098,8 +3098,8 @@ class TestRunQueue(unittest.TestCase):
 
     def test_interrupted_and_resume_summary(self):
         import runqueue
-        vids = [self.res / "Ranch Tour" / n for n in ("a.mp4", "b.mp4", "c.mp4")]
-        d = runqueue.start(self.cfg, [str(self.res / "Ranch Tour")], True, False, vids, 2)
+        vids = [self.res / "Video Project" / n for n in ("a.mp4", "b.mp4", "c.mp4")]
+        d = runqueue.start(self.cfg, [str(self.res / "Video Project")], True, False, vids, 2)
         runqueue.mark(self.cfg, d, vids[0], vids[0], True)
         d["pid"] = 999999  # the run died (Stop / crash / sleep)
         runqueue._write(self.cfg, d)
@@ -3112,18 +3112,18 @@ class TestRunQueue(unittest.TestCase):
 
     def test_resume_finds_moved_source_folder(self):
         import runqueue
-        vids = [self.res / "Ranch Tour" / "a.mp4"]
-        d = runqueue.start(self.cfg, [str(self.res / "Ranch Tour")], False, True, vids, 0)
+        vids = [self.res / "Video Project" / "a.mp4"]
+        d = runqueue.start(self.cfg, [str(self.res / "Video Project")], False, True, vids, 0)
         d["pid"] = 999999
         runqueue._write(self.cfg, d)
         (self.res / "Trip").mkdir()
-        os.rename(self.res / "Ranch Tour", self.res / "Trip" / "Ranch Tour")
-        self.assertEqual(runqueue.summary(self.cfg)["sources"], [str(self.res / "Trip" / "Ranch Tour")])
+        os.rename(self.res / "Video Project", self.res / "Trip" / "Video Project")
+        self.assertEqual(runqueue.summary(self.cfg)["sources"], [str(self.res / "Trip" / "Video Project")])
 
     def test_looks_named(self):
         from apply_renames import looks_named
-        for n in ("20261010_ranch-tour_tourists-at-the-ranch_aroll.mp4",
-                  "20261010_ranch-tour_tourists-at-the-ranch_aroll_t01.mp4", "20261009_island_map-route_broll.png"):
+        for n in ("20261010_video-project_people-on-camera_aroll.mp4",
+                  "20261010_video-project_people-on-camera_aroll_t01.mp4", "20261009_video-project_map-route_broll.png"):
             self.assertTrue(looks_named(n), n)
         for n in ("CAM_20261010075631_0001_D.MP4", "20261010_123456.mp4", "PXL_20261009_123.mp4", "IMG_0001.MOV",
                   "20261010_123456_001.mp4", "My Clip.mov"):
@@ -3145,10 +3145,10 @@ class TestProjectQueue(unittest.TestCase):
         self.cfg = dict(CFG, logs_dir=str(self.tmp / "logs"), inbox_dir=str(self.tmp / "inbox"),
                         notes_dir=str(self.tmp / "notes"))
         self.res = self.tmp / "DaVinci Resolve"
-        for d in ("Ranch Tour", "Held Project", "Loose"):
+        for d in ("Video Project", "Held Project", "Loose"):
             (self.res / d).mkdir(parents=True)
         for n in ("a.mp4", "b.mov"):
-            (self.res / "Ranch Tour" / n).write_bytes(b"x" * 10)
+            (self.res / "Video Project" / n).write_bytes(b"x" * 10)
         (self.res / "Held Project" / "c.mp4").write_bytes(b"x")
         for n in ("d.mp4", "e.mp4"):
             (self.res / "Loose" / n).write_bytes(b"x")
@@ -3165,23 +3165,23 @@ class TestProjectQueue(unittest.TestCase):
         return self.pq.add(self.cfg, [str(x) for x in paths], mode)["added"]
 
     def test_grouping_and_refused_rows(self):
-        a = self.add(self.res / "Ranch Tour", self.res / "Held Project", self.res / "Loose" / "d.mp4",
+        a = self.add(self.res / "Video Project", self.res / "Held Project", self.res / "Loose" / "d.mp4",
                      self.res / "Loose" / "e.mp4")
         names = [(i["name"], i["status"]) for i in a]
-        self.assertEqual(names, [("Ranch Tour", "waiting"), ("Held Project", "refused"), ("Loose", "waiting")])
+        self.assertEqual(names, [("Video Project", "waiting"), ("Held Project", "refused"), ("Loose", "waiting")])
         self.assertIn("on hold", a[1]["reason"])
         self.assertEqual(a[0]["media_count"], 2)
         self.assertEqual(len(a[2]["paths"]), 2)                       # loose files -> one project per folder
-        self.assertEqual(self.add(self.res / "Ranch Tour"), [])       # same folder twice: not added again
+        self.assertEqual(self.add(self.res / "Video Project"), [])       # same folder twice: not added again
         q = self.pq.summary(self.cfg)
         self.assertEqual((q["left"], q["clips_left"]), (2, 4))
 
     def test_edit_move_skip_remove_clear(self):
-        a = self.add(self.res / "Ranch Tour", self.res / "Loose")
+        a = self.add(self.res / "Video Project", self.res / "Loose")
         pq, cfg = self.pq, self.cfg
-        pq.update(cfg, a[0]["id"], {"name": "  Ranch   Day 1 ", "transcribe": False, "mode": "copy"})
+        pq.update(cfg, a[0]["id"], {"name": "  Shoot   Day 1 ", "transcribe": False, "mode": "copy"})
         it = pq.read(cfg)["items"][0]
-        self.assertEqual((it["name"], it["transcribe"], it["mode"]), ("Ranch Day 1", False, "copy"))
+        self.assertEqual((it["name"], it["transcribe"], it["mode"]), ("Shoot Day 1", False, "copy"))
         with self.assertRaises(ValueError):
             pq.update(cfg, a[0]["id"], {"name": "  "})
         pq.update(cfg, a[1]["id"], {"paused": True})
@@ -3195,18 +3195,18 @@ class TestProjectQueue(unittest.TestCase):
         self.assertEqual(pq.read(cfg)["items"], [])
 
     def test_transcript_saved_next_to_clips(self):
-        a = self.add(self.res / "Ranch Tour")
+        a = self.add(self.res / "Video Project")
         exp = self.tmp / "exports"
         exp.mkdir()
         (exp / "t.json").write_text("{}")
         (exp / "t.md").write_text("# t")
-        (self.res / "Ranch Tour" / "Ranch Tour_transcripts.json").write_text("old")   # taken -> -2, never overwritten
+        (self.res / "Video Project" / "Video Project_transcripts.json").write_text("old")   # taken -> -2, never overwritten
         with mock.patch("build_transcript_bundle.run", return_value={"json": str(exp / "t.json"), "md": str(exp / "t.md")}) as r, \
              mock.patch("check_resolve.resolve_running", return_value=False):
             out = self.pq.save_transcripts_next_to_clips(self.cfg, a[0])
-        self.assertEqual(r.call_args.kwargs["paths"], [str(self.res / "Ranch Tour")])
-        self.assertEqual([Path(w).name for w in out["written"]], ["Ranch Tour_transcripts-2.json", "Ranch Tour_transcripts-2.md"])
-        self.assertEqual((self.res / "Ranch Tour" / "Ranch Tour_transcripts.json").read_text(), "old")
+        self.assertEqual(r.call_args.kwargs["paths"], [str(self.res / "Video Project")])
+        self.assertEqual([Path(w).name for w in out["written"]], ["Video Project_transcripts-2.json", "Video Project_transcripts-2.md"])
+        self.assertEqual((self.res / "Video Project" / "Video Project_transcripts.json").read_text(), "old")
         self.assertTrue(self.pq.read(self.cfg)["options"]["save_next_to_clips"])
         with mock.patch("check_resolve.resolve_running", return_value=True):
             self.assertEqual(self.pq.save_transcripts_next_to_clips(self.cfg, a[0])["written"], [])
@@ -3220,7 +3220,7 @@ class TestProjectQueue(unittest.TestCase):
             self.pq.update(self.cfg, a[0]["id"], {"mode": "copy"})
 
     def test_pipeline_command_per_project(self):
-        a = self.add(self.res / "Ranch Tour")[0]
+        a = self.add(self.res / "Video Project")[0]
         q = self.pq.read(self.cfg)
         q["confirm_resolve"] = True
         a.update(needs_confirm=True, transcribe=False, name_in_filenames=True)
@@ -3228,16 +3228,16 @@ class TestProjectQueue(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--batch-id") + 1], "B1")
         self.assertIn("--skip-whisper", cmd)
         self.assertIn("--confirm-resolve", cmd)
-        self.assertEqual(cmd[cmd.index("--project") + 1], "Ranch Tour")
-        self.assertEqual(cmd[cmd.index("--source") + 1], str(self.res / "Ranch Tour"))
-        c = dict(a, mode="copy", copied=[str(self.res / "Ranch Tour" / "a.mp4"), str(self.tmp / "gone.mp4")])
+        self.assertEqual(cmd[cmd.index("--project") + 1], "Video Project")
+        self.assertEqual(cmd[cmd.index("--source") + 1], str(self.res / "Video Project"))
+        c = dict(a, mode="copy", copied=[str(self.res / "Video Project" / "a.mp4"), str(self.tmp / "gone.mp4")])
         cmd = self.pq._pipeline_cmd(self.cfg, q, c, "B2")
         self.assertEqual(cmd.count("--video"), 1)                     # files already moved away are left out
-        self.assertEqual(cmd[cmd.index("--folder") + 1], "Ranch Tour")
+        self.assertEqual(cmd[cmd.index("--folder") + 1], "Video Project")
         self.assertIsNone(self.pq._pipeline_cmd(self.cfg, q, dict(c, copied=[]), "B3"))
 
     def test_resume_after_quit_or_sleep(self):
-        self.add(self.res / "Ranch Tour")
+        self.add(self.res / "Video Project")
         with self.pq.locked(self.cfg) as d:
             d["state"], d["pid"] = "running", 999999                     # the runner died (quit / crash / sleep)
             d["items"][0]["status"] = "running"
@@ -3245,7 +3245,7 @@ class TestProjectQueue(unittest.TestCase):
         self.assertEqual((q["state"], q.get("interrupted"), q["left"]), ("stopped", True, 1))
 
     def test_start_needs_one_resolve_confirmation(self):
-        a = self.add(self.res / "Ranch Tour")[0]
+        a = self.add(self.res / "Video Project")[0]
         with self.pq.locked(self.cfg) as d:
             d["items"][0]["needs_confirm"] = True
         cfg = dict(self.cfg, dry_run=False)
@@ -3276,7 +3276,7 @@ class TestProjectQueue(unittest.TestCase):
             return self.pq.run()
 
     def test_runner_finishes_projects_in_order(self):
-        self.add(self.res / "Ranch Tour", self.res / "Loose")
+        self.add(self.res / "Video Project", self.res / "Loose")
         self.assertEqual(self._fake_run(0), 0)
         q = self.pq.read(self.cfg)
         self.assertEqual([i["status"] for i in q["items"]], ["done", "done"])
@@ -3284,13 +3284,13 @@ class TestProjectQueue(unittest.TestCase):
         self.assertTrue(all(len(i["batches"]) == 1 and i["id"] in i["batches"][0] for i in q["items"]))
 
     def test_runner_pause_keeps_project_waiting(self):
-        self.add(self.res / "Ranch Tour", self.res / "Loose")
+        self.add(self.res / "Video Project", self.res / "Loose")
         self._fake_run(4)                                   # run_pipeline paused after a clip
         q = self.pq.read(self.cfg)
         self.assertEqual((q["state"], q["items"][0]["status"], q["items"][1]["status"]), ("paused", "waiting", "waiting"))
 
     def test_runner_pauses_when_resolve_opens(self):
-        self.add(self.res / "Ranch Tour")
+        self.add(self.res / "Video Project")
         with mock.patch("check_resolve.resolve_running", return_value=["DaVinci Resolve"]), \
                 mock.patch.object(self.pq, "load_config", return_value=self.cfg):
             self.pq.run()
@@ -3299,14 +3299,14 @@ class TestProjectQueue(unittest.TestCase):
         self.assertIn("Resolve", q["message"])
 
     def test_transcript_search(self):
-        recs = [{"clip_id": "cam-1-aaaaaaaa", "current_path": "/x/20261010_ranch_guide_talking-head.mp4",
-                 "transcript": {"segments": [{"start": 1.0, "end": 2.5, "text": " Welcome to the  ranch tour "},
+        recs = [{"clip_id": "cam-1-aaaaaaaa", "current_path": "/x/20261010_video-project_host_talking-head.mp4",
+                 "transcript": {"segments": [{"start": 1.0, "end": 2.5, "text": " Welcome to the  video project "},
                                              {"start": 3.0, "end": 4.0, "text": "Horses are this way"}]}},
                 {"clip_id": "cam-2-bbbbbbbb", "current_path": "/x/b.mp4", "transcript": {"segments": []}}]
         with mock.patch("notes_store.load_all", return_value=recs):
-            h = self.pq.search_transcripts(self.cfg, "RANCH tour")["hits"]
+            h = self.pq.search_transcripts(self.cfg, "VIDEO project")["hits"]
         self.assertEqual(len(h), 1)
-        self.assertEqual((h[0]["file"], h[0]["start"]), ("20261010_ranch_guide_talking-head.mp4", 1.0))
+        self.assertEqual((h[0]["file"], h[0]["start"]), ("20261010_video-project_host_talking-head.mp4", 1.0))
         self.assertEqual(self.pq.search_transcripts(self.cfg, "  ")["hits"], [])
 
 
