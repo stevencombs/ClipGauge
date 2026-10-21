@@ -1,8 +1,71 @@
-# ClipGauge: local AI video renamer (portable)
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="ClipGauge icon">
+</p>
 
-[![Tip via PayPal](https://img.shields.io/badge/Tip%20via-PayPal-00457C?logo=paypal&logoColor=white)](https://paypal.me/stevencombs) [![YouTube @retroCombs-Tech](https://img.shields.io/badge/YouTube-%40retroCombs--Tech-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@retroCombs-Tech)
+<h1 align="center">ClipGauge</h1>
 
-Local-first video clip renamer + cataloguer that runs on macOS Apple Silicon with **Ollama** VLMs (clip description) and **whisper.cpp** (speech-to-text). The entire tree lives in one folder on any internal, external or network drive; on an external drive you can move it between Macs without reinstalling models.
+<p align="center">
+  Your video and photo clips, renamed and sorted by local AI, from the macOS menu bar.<br>
+  <sub>Native Swift · macOS 14+ · Apple silicon &amp; Intel (universal) · MIT licensed</sub>
+</p>
+
+<p align="center">
+  <a href="https://stevencombs.github.io/ClipGauge/"><img src="https://img.shields.io/badge/Website-ClipGauge-2FBF57?logo=apple&amp;logoColor=white" alt="Website"></a>
+  <a href="https://paypal.me/stevencombs"><img src="https://img.shields.io/badge/Tip%20via-PayPal-00457C?logo=paypal&amp;logoColor=white" alt="Tip via PayPal"></a>
+  <a href="https://www.youtube.com/@retroCombs-Tech"><img src="https://img.shields.io/badge/YouTube-%40retroCombs--Tech-FF0000?logo=youtube&amp;logoColor=white" alt="YouTube @retroCombs-Tech"></a>
+</p>
+
+<p align="center"><b>🌐 <a href="https://stevencombs.github.io/ClipGauge/">Visit the ClipGauge page →</a></b></p>
+
+## Quick install
+
+1. Download **`ClipGauge-<version>.zip`** from the [latest release](https://github.com/stevencombs/ClipGauge/releases/latest)
+   and check it with the `.sha256` file next to it:
+
+   ```sh
+   shasum -a 256 -c ClipGauge-0.8.2.zip.sha256
+   ```
+
+2. Unzip it and drag **ClipGauge.app** into `/Applications`.
+3. Open it. **Setup** opens by itself: choose or create a project folder on any internal, external or network
+   drive, then **Install Missing…** installs Homebrew, Python, ffmpeg, Ollama and whisper.cpp and pulls the models,
+   asking before every step. See [SETUP.md](SETUP.md) for the full walkthrough.
+
+Already installed? Download the new zip and replace **ClipGauge.app** the same way; your project folder, models and
+settings stay where they are. There's no Homebrew cask for ClipGauge yet.
+
+ClipGauge is ad-hoc signed, not notarized by Apple, so macOS warns the first time you open it: right-click
+**ClipGauge.app**, choose **Open**, then **Open** again (or *System Settings › Privacy & Security › Open Anyway*).
+
+> **Unofficial.** ClipGauge is a community project by [retroCombs](https://www.retrocombs.com).
+> It is not made, endorsed, or supported by Blackmagic Design (DaVinci Resolve), Ollama, Alibaba (Qwen) or
+> OpenAI (Whisper). Their names are trademarks of their owners.
+
+> **New in 0.8.2:** the built-in previews and sample data use generic example projects. In 0.8.1, each queue project's
+> transcript bundle is saved **next to its clips**. See [What's new](#whats-new-in-clipgauge-v082-generic-sample-data).
+
+## What it does
+
+Drop a folder of camera files on ClipGauge and it renames every clip **where it sits**, with a name that says what's
+in it: `CAM_20261004102233_0014_D.MP4` → `20261004_retro-game-expo_host-intro_talking-head.mp4`.
+
+- **Looks and listens, locally.** Ollama's `qwen2.5vl` looks at 9 frames of each clip and whisper.cpp transcribes
+  the speech. No clip, frame, audio or transcript leaves your Mac.
+- **One pattern:** `{date}_{project}_{subject}_{type}`. The new name is the "done" marker, so a clip is never
+  processed twice. Photos (JPEG, HEIC, DNG…) work too.
+- **Safe by default.** Never overwrites (`_t02` instead), keeps every file's original created and modified dates,
+  logs every rename so it can be undone, and won't run while DaVinci Resolve is open.
+- **Multi-project queue** with Resume after a stop, quit, crash or sleep. Each project has its own mode, Transcribe
+  switch, progress and undo.
+- **Transcripts:** search across every transcript, and a JSON + Markdown bundle saved next to the clips, ready to
+  hand to a script-writing bot.
+- **Settings** tabs that match [GrokGauge](https://stevencombs.github.io/GrokGauge/): General, Menu Bar, Colors &
+  Alerts, Sync (preferences only), Diagnostics and About. Global shortcut **⌃⌥C**.
+
+## Reference
+
+The rest of this README is the detailed reference for the engine (Python, in `scripts/`) and the app.
+ClipGauge is a local-first video clip renamer + cataloguer that runs on macOS Apple Silicon with **Ollama** VLMs (clip description) and **whisper.cpp** (speech-to-text). The entire tree lives in one folder on any internal, external or network drive; on an external drive you can move it between Macs without reinstalling models.
 
 ## Safety defaults
 
@@ -328,7 +391,7 @@ Until v0.5 it was spelled **ClipGauge**; v0.6 renamed it (new bundle id `com.ret
 your settings over. The menu bar shows the mark, plus a green `NN%` while a run is active. Click it for the popover:
 
 - **Progress ring:** clip X of Y, mode (live or dry run) and who started the run.
-- **Now processing card:** current clip, current step, and ETA (HST).
+- **Now processing card:** current clip, current step, and ETA (local time).
 - **Last-run error card** (only when the last run ended with errors): which clip, the reason and what happens next
   (for example: an empty 1.2 KB recording is marked *needs review* on the next run). **Dismiss** hides it for that run;
   `logs/status.json` is never edited.
@@ -413,7 +476,7 @@ Guards and notices:
 | What | How it's checked (read-only) | Upgrade |
 |---|---|---|
 | Ollama models in use: the tier's preferred model plus every model in `models/` | Local manifest sha256 compared with `registry.ollama.ai/v2/library/<name>/manifests/<tag>`. The size shown is only the layers that aren't already in `models/blobs` | Pulled through the running Ollama, which must be serving `<project>/models` (checked first) |
-| Homebrew `ollama`, `whisper.cpp`, `ffmpeg` | **Check Now** runs `brew update --quiet`, then `brew outdated --json=v2` for just those formulae. The size shown is the bottle size | `brew upgrade <formula>`. After ollama, the `com.retrocombs.ollama-lexar` LaunchAgent is restarted if present |
+| Homebrew `ollama`, `whisper.cpp`, `ffmpeg` | **Check Now** runs `brew update --quiet`, then `brew outdated --json=v2` for just those formulae. The size shown is the bottle size | `brew upgrade <formula>`. After ollama, ClipGauge's Ollama LaunchAgent is restarted if present |
 | Whisper `models/whisper/ggml-*.bin` | sha256 compared with Hugging Face's `X-Linked-ETag` for ggerganov/whisper.cpp (HEAD request, no download) | Downloaded to `.ggml-*.bin.part` (resumable) and sha256-verified. The old file is kept as `.bak` until whisper-cli loads the new one |
 | Newer model families (`config/updates.json`) | Checked against the registry for existence and size | **Info only.** Shows a link; never downloads or switches |
 
@@ -426,7 +489,7 @@ Guards and notices:
   - On success, the backup tag is removed with Ollama's own delete, which frees the old blobs. No blob is deleted by hand.
   - On failure, the previous version is restored.
 - **Upgrades run in the background** in a new session with caffeinate, so closing the popover or Setup doesn't stop them.
-  - Progress (percent, MB/s, ETA in HST) shows in Setup, and as a blue `↓NN%` in the menu bar.
+  - Progress (percent, MB/s, ETA in local time) shows in Setup, and as a blue `↓NN%` in the menu bar.
   - **Cancel** stops after the current chunk; **Resume** continues where it stopped.
 - **Updates and processing never overlap.**
   - Upgrades are refused while a processing run holds `logs/pipeline.lock` or DaVinci Resolve is open.
@@ -621,18 +684,6 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 - **Removed:** duplicate controls (per-tab Start buttons, popover shortcuts, app-menu duplicates) and the legacy web UI.
 - v0.7.6 fixes included: a folder moved during a run is found again; hand-edited names aren't processed twice.
 
-## Credits & contact
-
-Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot**, Steven's AI assistant.
-
-- **YouTube:** [@retroCombs-Tech](https://www.youtube.com/@retroCombs-Tech)
-- **Support the project:** if ClipGauge saves you an evening of renaming clips, you can
-  [tip via PayPal](https://paypal.me/stevencombs). Thank you!
-- **Support ClipGauge…** (dropdown footer, app menu, Settings › About) just opens
-  [paypal.me/stevencombs](https://paypal.me/stevencombs) in your browser. ClipGauge sends nothing.
-
-The same links are in ClipGauge under **Settings › About**.
-
 ### What's new in ClipGauge v0.8.2: generic sample data
 
 - The built-in preview and sample data now use generic example projects (such as "Video Project") and generic
@@ -646,3 +697,33 @@ The same links are in ClipGauge under **Settings › About**.
 - On by default; Settings › Queue › **Save transcript next to clips** turns it off. Skipped while DaVinci Resolve is
   open and for held or protected folders; clips are never touched.
 - The queue's per-project progress now reads the clip count from `status.json` (it stayed empty in 0.8.0).
+
+## Credits and contact
+
+<p>
+  <img src="docs/retrocombs-logo.png" width="112" align="left" alt="retroCombs logo: a retro joystick on rainbow stripes" style="margin-right: 16px">
+</p>
+
+Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot**, Steven's AI assistant,
+which wrote the code, tests, and docs to his spec.
+
+- **Website:** [stevencombs.github.io/ClipGauge](https://stevencombs.github.io/ClipGauge/)
+- **YouTube:** [@retroCombs-Tech](https://www.youtube.com/@retroCombs-Tech)
+- **Contact:** [retroCombs@icloud.com](mailto:retroCombs@icloud.com)
+- **Bugs and feature requests:** [GitHub issues](https://github.com/stevencombs/ClipGauge/issues/new)
+- **Support the project:** if ClipGauge saves you an evening of renaming clips, you can
+  [tip via PayPal](https://paypal.me/stevencombs). Thank you!
+- **Support ClipGauge…** (popover footer, app menu, Settings › About) just opens
+  [paypal.me/stevencombs](https://paypal.me/stevencombs) in your browser. ClipGauge sends nothing.
+
+The same links are in ClipGauge under **Settings › About**.
+<br clear="left">
+
+### More apps from retroCombs
+
+- **[GrokGauge](https://stevencombs.github.io/GrokGauge/)**: your SuperGrok and Grok Bot weekly usage as colored
+  rings in the macOS menu bar. ([GitHub](https://github.com/stevencombs/GrokGauge))
+
+## License
+
+[MIT](LICENSE) © 2026 Steven Combs (retroCombs)
