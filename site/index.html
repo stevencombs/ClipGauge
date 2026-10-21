@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ClipGauge · Your clips, named and sorted by local AI</title>
+<meta name="description" content="ClipGauge is a free, open-source macOS menu bar app that renames and sorts your video and photo clips in place with local AI. Nothing leaves your Mac.">
+<meta property="og:title" content="ClipGauge · Your clips, named and sorted by local AI">
+<meta property="og:description" content="A free, open-source macOS menu bar app that renames your video and photo clips with local AI (Ollama + whisper.cpp).">
+<link rel="canonical" href="https://stevencombs.github.io/ClipGauge/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://stevencombs.github.io/ClipGauge/">
+<meta property="og:image" content="https://stevencombs.github.io/ClipGauge/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="ClipGauge: Your clips, named by local AI. A free, open-source macOS menu bar app.">
+<meta name="twitter:image" content="https://stevencombs.github.io/ClipGauge/assets/og-image.png">
+<meta name="twitter:site" content="@StevenCombs">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><img src="assets/icon-256.png" alt="" width="32" height="32"><span>ClipGauge</span></a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#naming">Naming</a>
+      <a href="#safety">Safety</a>
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+      <a href="#apps">More apps</a>
+      <a href="#support">Support</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/stevencombs/ClipGauge">
+      <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- HERO -->
+<section class="hero">
+  <div class="glow" aria-hidden="true"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot"></span>v0.8.2 · Free &amp; open source · macOS 14+</p>
+      <h1>Your clips, named <span class="grad">by local AI.</span></h1>
+      <p class="lede">ClipGauge lives in your Mac's menu bar. Drop in a folder of camera files and it looks at every clip, listens to it, and renames it where it sits, so <code>CAM_0034.MP4</code> becomes a name you can actually search. Nothing leaves your Mac.</p>
+
+      <div class="cmd" role="group" aria-label="Example rename">
+        <span class="prompt" aria-hidden="true">→</span>
+        <code>CAM_20261004102233_0014_D.MP4 → 20261004_retro-game-expo_host-intro_talking-head.mp4</code>
+      </div>
+
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/stevencombs/ClipGauge/releases/latest">
+          <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M7.25 1.75a.75.75 0 011.5 0v7.19l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 111.06-1.06l2.22 2.22V1.75zM2 13.25a.75.75 0 01.75-.75h10.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z"/></svg>
+          Download for Mac
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/stevencombs/ClipGauge">View on GitHub</a>
+      </div>
+      <p class="fine">Native Swift · Apple silicon recommended (universal app) · MIT licensed · Unofficial, not affiliated with Blackmagic Design, Ollama or OpenAI</p>
+    </div>
+
+    <figure class="hero-shot">
+      <div class="mock pop" role="img" aria-label="The ClipGauge popover while a queue runs: Video Project, clip 21 of 52, describe step, 92 minutes left, queue summary, Pause and Open ClipGauge buttons">
+        <div class="pop-head"><img src="assets/icon-256.png" alt="" width="22" height="22"><b>ClipGauge</b><span class="pill">Renamer · Live</span><span class="gear">⚙︎</span></div>
+        <div class="pop-card">
+          <h4>Video Project · clip 21 of 52</h4>
+          <div class="bar"><span style="width:40%"></span></div>
+          <p>Describe · 92 min left in this project</p>
+          <p>Queue: 1 done · 1 running · 1 waiting · 1 paused · 59 clip(s) left</p>
+          <p class="dim">Last: 20261004_retro-game-expo_host-intro_talking-head.mp4</p>
+          <div class="pop-btns"><span class="mbtn">Pause</span><span class="mbtn">Open ClipGauge</span></div>
+        </div>
+        <div class="pop-foot"><span>v0.8.2</span><span>Support ClipGauge…</span><span>Quit</span></div>
+      </div>
+      <figcaption>ClipGauge 0.8.2, shown with example data</figcaption>
+    </figure>
+  </div>
+
+  <div class="wrap menubar-strip">
+    <figure class="mb-fig">
+      <div class="mock menubar" role="img" aria-label="ClipGauge in the menu bar: the play-gauge mark with 40% while a run is active"><span class="mb-mark"><img src="assets/icon-256.png" alt="" width="18" height="18"></span><span class="mb-pct">40%</span><span class="mb-sep"></span><span class="mb-other">Tue 9:41 PM</span></div>
+      <figcaption>Menu bar while a run is active (example)</figcaption>
+    </figure>
+    <p>Lives in your menu bar. A green percent while it works, orange when DaVinci Resolve is open and it's waiting, and nothing at all when it's idle.</p>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="section alt">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Features</p>
+      <h2>Drop a folder. Get searchable clips.</h2>
+      <p>Each folder you drop on ClipGauge becomes a project in the queue. Start it, walk away, and come back to clips that say what's in them.</p>
+    </header>
+
+    <div class="card win-card">
+      <div class="mock win" role="img" aria-label="The ClipGauge queue window with four example projects and one refused held folder">
+        <div class="win-bar"><span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+          <span class="seg"><b>Queue</b><span>Results</span></span><span class="ex">Example data</span><span class="ready">● Ready · live</span><span class="tool">Tools ▾</span></div>
+        <div class="drop">Drop more folders or clips. They join the end of the queue. <span class="mbtn">Choose…</span></div>
+        <div class="qrow"><div><b>Collectibles Review</b><small>18 clip(s) · Videos/Collectibles Review · done: 18 renamed where they are</small></div><span class="sel">In place</span><span class="sw on">Transcribe</span></div>
+        <div class="qrow run"><div><b>Video Project</b><small>52 clip(s) · Videos/Video Project · clip 21 of 52 · describe</small><div class="bar"><span style="width:40%"></span></div></div><span class="sel">In place</span><span class="sw on">Transcribe</span></div>
+        <div class="qrow"><div><b>Retro Console Unboxing</b><small>7 clip(s) · copied into inbox/Retro Console Unboxing/</small></div><span class="sel">Copy to inbox</span><span class="sw on">Transcribe</span></div>
+        <div class="qrow"><div><b>Vintage Show</b><small>12 clip(s) · paused · no transcription</small></div><span class="sel">In place</span><span class="sw">Transcribe</span></div>
+        <div class="qrow held"><div><b>✋ Held Project</b><small>On hold (hold_sources). Remove it from hold to process.</small></div><span class="refused">Refused</span></div>
+        <div class="win-foot"><span>4 project(s) · 89 clip(s) · Live (renames files)</span><span class="ck">☐ Dry run</span><span class="mbtn primary">▶ Start queue</span></div>
+      </div>
+    </div>
+
+    <div class="grid feat-shots cg-feats">
+      <article class="card shot-card">
+        <div class="shot mock-shot"><div class="mock mini-win">
+          <div class="rrow"><span class="o">CAM_…0011_D.MP4</span><span class="n">…_vendor-tables_broll.mp4</span><span class="st ok">renamed</span></div>
+          <div class="rrow"><span class="o">CAM_…0015_D.MP4</span><span class="n">…_famicom-box_unboxing.mp4</span><span class="st warn">needs review</span></div>
+          <div class="rrow"><span class="o">IMG_0001.HEIC</span><span class="n">…_poster_photo.heic</span><span class="st ok">renamed</span></div>
+          <div class="rrow"><span class="o">CAM_…0019_D.MP4</span><span class="n">…_crowd-pan_broll.mp4</span><span class="st dry">dry run</span></div>
+        </div></div>
+        <h3>Results you can trust</h3>
+        <p>Original and new name, clip type, confidence and status for every clip. Low-confidence clips keep their name and wait for you in <strong>Review…</strong></p>
+      </article>
+      <article class="card shot-card">
+        <div class="shot mock-shot"><div class="mock mini-win tr">
+          <div class="search">⌕ expo booth</div>
+          <p><span class="ts">[00:00:03 → 00:00:07]</span> Welcome back, today we're at the retro game <mark>expo</mark>.</p>
+          <p><span class="ts">[00:01:12 → 00:01:16]</span> This <mark>booth</mark> has a boxed console I've never seen.</p>
+          <p class="dim">20261004_retro-game-expo_host-intro_talking-head.mp4</p>
+        </div></div>
+        <h3>Transcripts &amp; search</h3>
+        <p>whisper.cpp transcribes every clip with speech. Search across every transcript, and get a JSON + Markdown bundle saved right next to the clips.</p>
+      </article>
+      <article class="card shot-card">
+        <div class="shot mock-shot"><div class="mock mini-win tr">
+          <p><b>Video Project_transcripts.md</b></p>
+          <p class="dim">52 clips · 38 with speech · 14 silent</p>
+          <p><span class="ts">## 20261004_…_host-intro_talking-head.mp4</span></p>
+          <p class="dim">- [00:00:03 → 00:00:07] #0001 Welcome back…</p>
+        </div></div>
+        <h3>Ready for script writing</h3>
+        <p>Hand the transcript bundle to your favorite chat bot. Every line is time-stamped and points back to its clip, so the bot can cite b-roll and quotes.</p>
+      </article>
+    </div>
+
+    <div class="grid feat-mini">
+      <div class="mini"><span class="mi">▶</span><div><h4>Multi-project queue</h4><p>Reorder, pause, skip or remove projects. Each one has its own mode, Transcribe switch, progress and undo.</p></div></div>
+      <div class="mini"><span class="mi">↻</span><div><h4>Resumes where it stopped</h4><p>Stopped, quit, crashed or the Mac went to sleep? <strong>Resume</strong> picks up with the next unfinished clip.</p></div></div>
+      <div class="mini"><span class="mi">◎</span><div><h4>Sees and listens</h4><p>Ollama's <code>qwen2.5vl</code> looks at 9 frames of each clip; whisper.cpp writes down what's said.</p></div></div>
+      <div class="mini"><span class="mi">▣</span><div><h4>Photos too</h4><p>JPEG, HEIC, DNG, PNG and more, dated from the camera's own EXIF time.</p></div></div>
+      <div class="mini"><span class="mi">⌨</span><div><h4>Global shortcut</h4><p>Press <kbd>⌃⌥C</kbd> from anywhere. Settings is <kbd>⌘,</kbd>, with tabs that match GrokGauge.</p></div></div>
+      <div class="mini"><span class="mi">⇄</span><div><h4>Synced preferences</h4><p>Point it at a folder your Macs already sync. Only preferences go there, never clips, notes or transcripts.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- NAMING -->
+<section id="naming" class="section">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Naming</p>
+      <h2>One pattern. Every clip.</h2>
+      <p>The new name is the “done” marker: a clip with a ClipGauge name is never processed twice.</p>
+    </header>
+    <div class="name-pattern" aria-label="date, project, subject, type">
+      <span class="np np-d">20261004</span><span class="us">_</span><span class="np np-p">retro-game-expo</span><span class="us">_</span><span class="np np-s">vendor-tables</span><span class="us">_</span><span class="np np-t">broll</span><span class="us">.mp4</span>
+    </div>
+    <div class="ring-explain name-keys">
+      <div class="ring-key"><span class="k k-g"></span><div><h4>Date</h4><p>When it was recorded: the camera's own time, never the day you copied it.</p></div></div>
+      <div class="ring-key"><span class="k k-o"></span><div><h4>Project &amp; subject</h4><p>From the folder name, or the model's best guess at what the clip shows.</p></div></div>
+      <div class="ring-key"><span class="k k-b"></span><div><h4>Type</h4><p><code>talking-head</code>, <code>broll</code>, <code>unboxing</code>, <code>gameplay</code>, <code>menu</code>, <code>photo</code> and more. Name clashes get <code>_t02</code>, never an overwrite.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- SAFETY -->
+<section id="safety" class="section alt">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Safety</p>
+      <h2>Careful with your footage.</h2>
+      <p>ClipGauge was built for a real editing drive, so the rules are strict.</p>
+    </header>
+    <div class="privacy card">
+      <h3>The rules, in plain words</h3>
+      <ul class="checks">
+        <li><strong>Never overwrites.</strong> A name that's taken gets <code>_t02</code>, <code>_t03</code> and so on.</li>
+        <li><strong>Keeps original dates.</strong> Created and modified dates survive every rename, move, copy and undo.</li>
+        <li><strong>Everything is undoable.</strong> Every rename is logged. Undo one clip, a batch or a whole project.</li>
+        <li><strong>Waits for DaVinci Resolve.</strong> It won't start while Resolve is open and pauses before the next project if it opens.</li>
+        <li><strong>Dry run first.</strong> New projects start in preview mode, so you see every proposed name before anything changes.</li>
+        <li><strong>Hands off.</strong> Resolve's own folders, Cloud-synced projects and folders you put on hold are refused.</li>
+        <li><strong>Local only.</strong> No clip, frame, audio or transcript leaves your Mac. The models run on it.</li>
+        <li><strong>No analytics, no telemetry, no account.</strong> Open source, so you can read every line.</li>
+      </ul>
+      <a class="more" href="https://github.com/stevencombs/ClipGauge#safety-defaults">Read the full safety details →</a>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="section">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">How it works</p>
+      <h2>Set it up once. Then just drop folders.</h2>
+      <p>ClipGauge keeps its project folder, AI models and logs together on any internal, external or network drive you choose.</p>
+    </header>
+    <ol class="steps">
+      <li><span class="n">1</span><h3>Install &amp; Setup</h3><p>Open the app and <strong>Setup</strong> checks Homebrew, Python, ffmpeg, Ollama and whisper.cpp. <strong>Install Missing…</strong> asks before every install.</p></li>
+      <li><span class="n">2</span><h3>Drop your folders</h3><p>Drag folders or clips onto the window or the menu bar icon. Rename them in place, or copy them into the inbox first.</p></li>
+      <li><span class="n">3</span><h3>Start the queue</h3><p>Run a dry run to preview, then go live. When each project finishes, its transcript bundle lands next to the clips.</p></li>
+    </ol>
+  </div>
+</section>
+
+<!-- INSTALL -->
+<section id="install" class="section alt">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">Install</p>
+      <h2>Up and running in an evening.</h2>
+      <p>Most of the time is the one-time model download (about 6 GB).</p>
+    </header>
+    <div class="grid install-grid">
+      <div class="card">
+        <span class="tag">Recommended</span>
+        <h3>GitHub Releases</h3>
+        <p>Download <code>ClipGauge-0.8.2.zip</code>, unzip it and drag <strong>ClipGauge.app</strong> into Applications. Each release has a <code>.sha256</code> file so you can check the download.</p>
+        <div class="cmd cmd-sm">
+          <code>shasum -a 256 -c ClipGauge-0.8.2.zip.sha256</code>
+          <button class="copy" type="button" data-copy="shasum -a 256 -c ClipGauge-0.8.2.zip.sha256" aria-label="Copy checksum command">Copy</button>
+        </div>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/stevencombs/ClipGauge/releases/latest">Latest release →</a>
+      </div>
+      <div class="card">
+        <span class="tag tag-muted">Requirements</span>
+        <h3>What you need</h3>
+        <ul class="reqs">
+          <li>macOS 14 Sonoma or later; Apple silicon recommended (Intel works, but slowly)</li>
+          <li>16 GB of memory or more</li>
+          <li>About 10 GB free for the AI models, plus room for clips</li>
+          <li>Homebrew, Python 3.10+, ffmpeg, Ollama and whisper.cpp (Setup installs them with your OK)</li>
+          <li><em>Optional:</em> DaVinci Resolve. ClipGauge simply waits while it's open</li>
+        </ul>
+      </div>
+      <div class="card">
+        <span class="tag tag-muted">Storage</span>
+        <h3>Any drive works</h3>
+        <p>Put the project folder on your Mac's internal disk, an external SSD, or a network share. A fast SSD is quickest, and an external one lets you move it between Macs without re-downloading models.</p>
+        <p><strong>For Mac laptops</strong>, a compact USB-C SSD keeps it portable: <a class="more" href="https://amzn.to/4ihwdRF">recommended drive →</a></p>
+        <p class="fine">Affiliate link: I may earn a commission at no cost to you.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="section">
+  <div class="wrap narrow">
+    <header class="sec-head">
+      <p class="kicker">FAQ</p>
+      <h2>Questions, answered.</h2>
+    </header>
+    <details open>
+      <summary>Does anything get uploaded?</summary>
+      <p>No. The vision model runs in Ollama on your Mac and the speech model runs in whisper.cpp on your Mac. The network is only used to download the tools and models during setup, and for an optional update check.</p>
+    </details>
+    <details open>
+      <summary>What if it gets a name wrong?</summary>
+      <p>Clips it isn't sure about keep their original name and are flagged <strong>needs review</strong>. You can accept the proposal or type your own. Any rename can be undone, by clip, batch or project, and the files keep their original dates.</p>
+    </details>
+    <details open>
+      <summary>Why does macOS warn me the first time?</summary>
+      <p>Releases aren't notarized by Apple yet, so a downloaded copy gets a Gatekeeper warning. Right-click <strong>ClipGauge.app</strong>, choose <strong>Open</strong>, then <strong>Open</strong> again, or use <strong>System Settings › Privacy &amp; Security › Open Anyway</strong>.</p>
+    </details>
+    <details>
+      <summary>Do I need a particular drive?</summary>
+      <p>No. Any internal, external or network drive works (APFS, exFAT or HFS+). Network drives are slower and must stay mounted during a run.</p>
+    </details>
+    <details>
+      <summary>How fast is it?</summary>
+      <p>On a 16 GB MacBook Air, plan on a few minutes per clip with the default model. Queue a batch before bed and it keeps the Mac awake until it's done.</p>
+    </details>
+    <details>
+      <summary>Does it work with DaVinci Resolve projects?</summary>
+      <p>Yes, carefully. It won't run while Resolve is open, never touches Resolve's own folders or Cloud-synced projects, and asks once before renaming clips inside your Resolve folder, because Resolve will need to relink them.</p>
+    </details>
+    <details>
+      <summary>What does it cost?</summary>
+      <p>Nothing. ClipGauge is free and MIT licensed. If it saves you an evening of renaming clips, a tip is always appreciated.</p>
+    </details>
+  </div>
+</section>
+
+<!-- MORE APPS -->
+<section id="apps" class="section alt">
+  <div class="wrap">
+    <header class="sec-head">
+      <p class="kicker">More apps from retroCombs</p>
+      <h2>Part of the Gauge family.</h2>
+      <p>Small, native menu bar apps for Mac, built in the open.</p>
+    </header>
+    <div class="grid apps-grid">
+      <a class="card app-card" href="https://stevencombs.github.io/GrokGauge/">
+        <img src="assets/grokgauge-icon.png" alt="" width="64" height="64">
+        <div><h3>GrokGauge</h3><p>Your SuperGrok and Grok Bot weekly usage as colored rings in the menu bar, so the weekly limit never sneaks up on you.</p><span class="more">Visit the GrokGauge page →</span></div>
+      </a>
+      <div class="card app-card current">
+        <img src="assets/icon-256.png" alt="" width="64" height="64">
+        <div><h3>ClipGauge <span class="soon">You are here</span></h3><p>Local AI that renames and sorts your video and photo clips in place, with transcripts saved next to them.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SUPPORT -->
+<section id="support" class="section">
+  <div class="wrap">
+    <div class="support card">
+      <img class="logo" src="assets/retrocombs-logo-160.png" srcset="assets/retrocombs-logo-160.png 1x, assets/retrocombs-logo-512.png 3x" width="96" height="96" alt="retroCombs logo">
+      <div class="support-copy">
+        <h2>Free, and built in the open.</h2>
+        <p>ClipGauge was made by Steven “retroCombs” Combs together with Grok Bot. If it saves you an evening of renaming clips, you can say thanks with a tip.</p>
+      </div>
+      <div class="support-cta">
+        <a class="btn btn-paypal" href="https://paypal.me/stevencombs">Tip via PayPal</a>
+        <a class="btn btn-ghost" href="https://github.com/stevencombs/ClipGauge">★ Star on GitHub</a>
+        <a class="link" href="https://github.com/stevencombs/ClipGauge/issues/new">Report a bug or request a feature</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap foot-grid foot-4">
+    <div>
+      <a class="brand" href="#top"><img src="assets/icon-256.png" alt="" width="28" height="28"><span>ClipGauge</span></a>
+      <p class="fine">Made by Steven “retroCombs” Combs with Grok Bot.<br>Contact: <a href="mailto:retroCombs@icloud.com">retroCombs@icloud.com</a></p>
+    </div>
+    <div class="foot-links">
+      <h4>Project</h4>
+      <a href="https://github.com/stevencombs/ClipGauge">GitHub</a>
+      <a href="https://github.com/stevencombs/ClipGauge/releases">Releases</a>
+      <a href="https://github.com/stevencombs/ClipGauge/blob/main/SETUP.md">Setup guide</a>
+      <a href="https://github.com/stevencombs/ClipGauge/blob/main/LICENSE">License</a>
+    </div>
+    <div class="foot-links">
+      <h4>Apps</h4>
+      <a href="https://stevencombs.github.io/GrokGauge/">GrokGauge</a>
+      <a href="#top">ClipGauge</a>
+    </div>
+    <div class="foot-links">
+      <h4>retroCombs</h4>
+      <a href="https://www.youtube.com/@retrocombs">YouTube @retroCombs</a>
+      <a href="https://www.youtube.com/@retrocombs-tech">YouTube @retroCombs-Tech</a>
+      <a href="https://x.com/StevenCombs">X @StevenCombs</a>
+      <a href="https://www.retrocombs.com">retrocombs.com</a>
+    </div>
+  </div>
+  <div class="wrap disclaimer">
+    <p><strong>Unofficial.</strong> ClipGauge is an independent project. It is not made, endorsed or supported by Blackmagic Design, Ollama, Alibaba (Qwen) or OpenAI (Whisper).</p>
+    <p>DaVinci Resolve is a trademark of Blackmagic Design. Other names are trademarks of their owners.</p>
+    <p>MIT License © 2026 Steven Combs (retroCombs)</p>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var t = b.getAttribute('data-copy');
+    var done = function () { b.textContent = 'Copied'; b.classList.add('ok'); setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('ok'); }, 1600); };
+    if (navigator.clipboard) { navigator.clipboard.writeText(t).then(done, done); }
+    else { var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); } catch (e) {} a.remove(); done(); }
+  });
+});
+</script>
+</body>
+</html>
