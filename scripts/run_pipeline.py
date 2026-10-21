@@ -783,7 +783,7 @@ def run(args: argparse.Namespace) -> int:
     models_env = os.environ.get("OLLAMA_MODELS", "")
     print(f"Tier: {tier} ({gb:.1f} GiB) prefer={tier_info.get('prefer')}  dry_run={dry}")
     if models_env and Path(models_env).resolve() != (ROOT / "models").resolve():
-        print(f"NOTE: OLLAMA_MODELS should be {ROOT / 'models'} (ExFAT Lexar tree).", file=sys.stderr)
+        print(f"NOTE: OLLAMA_MODELS should be {ROOT / 'models'} (the project folder's models/).", file=sys.stderr)
 
     ffprobe = tool_path(cfg, "ffprobe_path", "ffprobe")
     durations = []

@@ -774,6 +774,7 @@ struct SettingsView: View {
                     Button("Open") { model.showMain() }
                 }
             }
+            ModelsPrefGroup(model: model)
             PrefGroup(title: "Queue",
                       footer: "Each dropped folder becomes a project with its own mode (in place or copy to inbox) and a "
                         + "Transcribe switch. The queue is saved in logs/queue.json and resumes after a stop, quit or sleep.") {

@@ -43,21 +43,33 @@ def whisper_cli_path(wcfg: dict) -> str | None:
     return None
 
 
-def whisper_model_name(cfg: dict, tier: str | None = None, tier_info: dict | None = None) -> str:
-    """env AI_VIDEO_RENAMER_WHISPER_MODEL > config whisper.model[tier] > ram-tiers whisper_model > base.en"""
+def whisper_model_choice(cfg: dict, tier: str | None = None, tier_info: dict | None = None) -> tuple[str, str]:
+    """(name, source): env AI_VIDEO_RENAMER_WHISPER_MODEL > this Mac's choice (Settings › Models, if its ggml file
+    is in models/whisper) > config whisper.model[tier] > ram-tiers whisper_model > base.en"""
+    import machine_prefs
     env = os.environ.get("AI_VIDEO_RENAMER_WHISPER_MODEL")
     if env:
-        return env.strip()
+        return env.strip(), "environment"
     if tier is None:
         tier, tier_info, _ = current_tier()
+    mine = machine_prefs.whisper_choice()
+    fallback_note = ""
+    if mine:
+        if whisper_model_file(cfg, mine).is_file():
+            return mine, "this Mac's choice"
+        fallback_note = f" (your choice {mine} is not in models/whisper)"
     model = section(cfg, "whisper").get("model")
     if isinstance(model, dict) and model.get(tier):
-        return str(model[tier])
+        return str(model[tier]), "RAM tier" + fallback_note
     if isinstance(model, str) and model:
-        return model
+        return model, "config whisper.model" + fallback_note
     if tier_info and tier_info.get("whisper_model"):
-        return str(tier_info["whisper_model"])
-    return "base.en"
+        return str(tier_info["whisper_model"]), "RAM tier" + fallback_note
+    return "base.en", "default" + fallback_note
+
+
+def whisper_model_name(cfg: dict, tier: str | None = None, tier_info: dict | None = None) -> str:
+    return whisper_model_choice(cfg, tier, tier_info)[0]
 
 
 def whisper_model_file(cfg: dict, name: str) -> Path:

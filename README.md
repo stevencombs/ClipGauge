@@ -23,7 +23,7 @@
    and check it with the `.sha256` file next to it:
 
    ```sh
-   shasum -a 256 -c ClipGauge-0.8.2.zip.sha256
+   shasum -a 256 -c ClipGauge-0.8.3.zip.sha256
    ```
 
 2. Unzip it and drag **ClipGauge.app** into `/Applications`.
@@ -41,8 +41,11 @@ ClipGauge is ad-hoc signed, not notarized by Apple, so macOS warns the first tim
 > It is not made, endorsed, or supported by Blackmagic Design (DaVinci Resolve), Ollama, Alibaba (Qwen) or
 > OpenAI (Whisper). Their names are trademarks of their owners.
 
-> **New in 0.8.2:** the built-in previews and sample data use generic example projects. In 0.8.1, each queue project's
-> transcript bundle is saved **next to its clips**. See [What's new](#whats-new-in-clipgauge-v082-generic-sample-data).
+> **New in 0.8.3:** **Ask the Model** is built into the main window as a chat panel (⇧⌘A), you can pick the vision and
+> speech models per Mac in Settings, and transcripts are saved next to clips on **any** drive.
+> See [What's new](#whats-new-in-clipgauge-v083-chat-in-the-main-window-model-choice-any-drive).
+
+<p align="center"><img src="docs/screenshots/v083-main-chat-dark.png" width="860" alt="ClipGauge main window with the Ask the Model chat panel (example data)"></p>
 
 ## What it does
 
@@ -421,11 +424,13 @@ your settings over. The menu bar shows the mark, plus a green `NN%` while a run 
 - **Tools:** **Move renamed clips into a folder**, **Transcript bundle** (scope picker, builds into `exports/`, Open /
   Reveal), Sort into Projects, Instructions, Setup & Updates, About.
 
-**Ask the Model** (⌘K): chat with the local Ollama (`/api/chat`, streamed; 127.0.0.1 only — nothing leaves the Mac).
+**Ask the Model** (⇧⌘A or ⌘K, or the ✨ **Ask** button): since v0.8.3 a chat panel on the right of the main window,
+shown by default (the sidebar button at its top hides it; Tools ▾ › *Ask the Model in a Separate Window* still opens it on its
+own). It chats with the local Ollama (`/api/chat`, streamed; 127.0.0.1 only — nothing leaves the Mac).
 Follow-ups keep the history; pick any installed model (default: the tier's vision model, `qwen2.5vl:7b` on the Air);
 attach an image (drop it on the window) or a clip's notes and transcript; copy any message; **Save** writes Markdown
-to `exports/chats/`; **New chat**; **Stop** ends a reply. It's paused while a processing run or an update is active,
-so the Air's 16 GB stay with the run.
+to `exports/chats/`; **New chat**; **Stop** ends a reply. It's paused while a processing run or an update is active
+(the panel says so), so the run keeps the memory.
 
 It never renames anything itself: every action runs `scripts/clipgauge_cli.py` (JSON bridge to the engine), so
 `logs/pipeline.lock`, `logs/updates.lock`, the Resolve guard and `logs/rename-log.jsonl` all still apply.
@@ -683,6 +688,23 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 - **Minimal popover:** warnings, the current project with progress, a queue summary, Pause / Resume, Open.
 - **Removed:** duplicate controls (per-tab Start buttons, popover shortcuts, app-menu duplicates) and the legacy web UI.
 - v0.7.6 fixes included: a folder moved during a run is found again; hand-edited names aren't processed twice.
+
+### What's new in ClipGauge v0.8.3: chat in the main window, model choice, any drive
+
+- **Ask the Model is back in the main window**, as a chat panel beside the queue with the message box, a model picker
+  and the conversation. It's visible by default and collapses with the sidebar button at its top. **⇧⌘A** (app menu) or ⌘K
+  (Tools ▾) opens it and puts the cursor in the message box. The ✨ **Ask** button shows or hides it. It still pauses
+  while clips are processing and says so in the panel.
+- **Settings › General › Models on this Mac:** choose the **vision model** (any installed Ollama model) and the
+  **speech model** (any `ggml-*.bin` in `models/whisper`), or leave both on **Automatic (RAM tier)**. The choice is
+  saved on that Mac only (`~/Library/Application Support/ClipGauge/models.json`) and is never synced, because Macs
+  differ in memory. A model that isn't installed falls back to the tier. Setup shows the models actually in use.
+- **Any drive:** transcript bundles (and *Save transcript next to clips*) work for folders on the internal disk,
+  another external drive or a network share, not only the drive that holds the project folder. Held folders,
+  DaVinci Resolve's own library and database folders and Cloud-synced projects are still never written into.
+- Messages say *Project drive "<name>" not connected* instead of naming one specific drive.
+
+<p align="center"><img src="docs/screenshots/v083-settings-general-models-dark.png" width="600" alt="Settings, General tab, with the Models on this Mac choice (example)"></p>
 
 ### What's new in ClipGauge v0.8.2: generic sample data
 

@@ -154,7 +154,8 @@ def cmd_status(cfg: dict) -> dict:
     try:
         import detect_ram
         _tier, info, _gb = detect_ram.current_tier()
-        vision = info.get("prefer") or info.get("fallback")
+        import machine_prefs   # v0.8.3: this Mac's Settings › Models choice, else the tier
+        vision = machine_prefs.vision_choice() or info.get("prefer") or info.get("fallback")
     except Exception:  # noqa: BLE001
         pass
     return coded(200, {"status": st, "run": run, "updates_active": bool(upd), "updates": upd or None,
@@ -496,6 +497,9 @@ def main(argv: list[str]) -> int:
             res = cmd_undo(cfg, rest)
         elif cmd == "review-accept":
             res = cmd_review_accept(cfg, rest)
+        elif cmd == "models":   # v0.8.3: Settings › Models / Setup — this Mac's choice + what is actually used
+            import machine_prefs
+            res = coded(200, machine_prefs.effective(cfg))
         elif cmd == "bundle-scopes":
             res = coded(200, ra.transcript_scopes(cfg))
         elif cmd == "bundle":

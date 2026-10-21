@@ -18,12 +18,13 @@
     "pro": {
       "label": "Pro (~64GB)",
       "min_ram_gb": 48,
-      "prefer": "gemma3:12b",
+      "prefer": "qwen2.5vl:7b",
       "alternates": [
-        "gemma3:27b",
-        "qwen2.5vl:32b"
+        "qwen2.5vl:32b",
+        "gemma3:12b",
+        "gemma3:27b"
       ],
-      "notes": "Prefer gemma3:12b or stronger VLM when memory allows.",
+      "notes": "Default qwen2.5vl:7b for speed (~1 min/clip); qwen2.5vl:32b (~21 GB, ~4 min/clip) is installed for higher-quality descriptions.",
       "whisper_model": "large-v3-turbo",
       "whisper_alternates": [
         "medium.en",

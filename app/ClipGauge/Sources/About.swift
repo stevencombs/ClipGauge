@@ -237,6 +237,19 @@ final class HostedWindow: NSObject, NSWindowDelegate {
 
     var isVisible: Bool { window?.isVisible == true }
 
+    /// v0.8.3: widen (never shrink) the window so its content is at least `width` wide, kept on screen.
+    func ensureContentWidth(_ width: CGFloat) {
+        guard let w = window, let c = w.contentView, c.frame.width < width else { return }
+        let vis = (w.screen ?? NSScreen.main)?.visibleFrame.width ?? width
+        w.setContentSize(NSSize(width: min(width, vis - 20), height: c.frame.height))
+        if let v = (w.screen ?? NSScreen.main)?.visibleFrame, w.frame.maxX > v.maxX {
+            var f = w.frame
+            f.origin.x = max(v.minX, v.maxX - f.width)
+            w.setFrame(f, display: true)
+        }
+        HostedWindow.fitToScreen(w)
+    }
+
     func show() {
         if window == nil {
             let host = NSHostingController(rootView: make())

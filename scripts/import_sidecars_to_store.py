@@ -48,7 +48,7 @@ def import_all(cfg: dict, paths: list[str] | None = None, preview: bool = False)
     for raw in paths or []:
         p = Path(raw) if Path(raw).is_absolute() else vol / raw
         if not inside(p, vol) or not p.is_dir():
-            raise ValueError(f"{raw}: not a folder on the Lexar ({vol})")
+            raise ValueError(f"{raw}: not a folder on the project drive “{vol.name}” ({vol})")
         tops.append(p)
     tops = tops or [vol]
     counts = {"sidecars_scanned": 0, "not_ours": 0, "imported": 0, "updated_path": 0, "unchanged": 0,

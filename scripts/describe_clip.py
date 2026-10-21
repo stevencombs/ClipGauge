@@ -467,19 +467,33 @@ def available_models(url: str = DEFAULT_URL, timeout: float = 5) -> list[str]:
     return out
 
 
+last_choice_source = "RAM tier"   # where the last choose_model() pick came from (Setup / machine_prefs report it)
+
+
 def choose_model(cfg: dict, tier_info: dict, available: list[str], override: str | None = None) -> tuple[str | None, list[str]]:
+    """--model > this Mac's choice (Settings › Models, machine_prefs) > config describe.model > RAM tier
+    prefer / fallback / alternates. A chosen model that isn't installed falls back to the tier."""
+    global last_choice_source
+    import machine_prefs
     dcfg = section(cfg, "describe")
+    tier_cands = [tier_info.get("prefer"), tier_info.get("fallback"), *(tier_info.get("alternates") or [])]
+    mine = machine_prefs.vision_choice()
     if override:
-        cands = [override]
+        cands, src = [override], "--model"
+    elif mine:
+        cands, src = [mine, *tier_cands], "this Mac's choice"
     elif dcfg.get("model"):
-        cands = [dcfg["model"]]
+        cands, src = [dcfg["model"]], "config describe.model"
     else:
-        cands = [tier_info.get("prefer"), tier_info.get("fallback"), *(tier_info.get("alternates") or [])]
-    cands = [c for c in cands if c]
+        cands, src = tier_cands, "RAM tier"
+    cands = [c for c in dict.fromkeys(cands) if c]
     have = set(available)
     for c in cands:
         if c in have or (":" not in c and f"{c}:latest" in have):
+            last_choice_source = src if (src != "this Mac's choice" or c == mine) else \
+                f"RAM tier (your choice {mine} is not installed)"
             return c, cands
+    last_choice_source = src
     return None, cands
 
 

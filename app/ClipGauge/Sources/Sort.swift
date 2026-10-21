@@ -158,7 +158,7 @@ final class SortModel: ObservableObject {
     /// Why Apply is disabled right now (nil = allowed). The script re-checks all of this itself.
     var applyBlockedReason: String? {
         guard let r = renamer else { return nil }
-        if !r.lexarOK { return "The Lexar isn't connected." }
+        if !r.lexarOK { return "\(Project.missingTitle)." }
         if r.resolveRunning { return "DaVinci Resolve is open — quit it to apply (moving clips under an open project makes them offline)." }
         if r.runActive { return "A processing run (or another sort) is active — apply when it finishes." }
         if r.updates.jobActive { return "Models/tools are being updated — apply when that finishes." }

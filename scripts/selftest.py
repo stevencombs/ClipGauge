@@ -20,6 +20,10 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# v0.8.3: tests never read this Mac's real Settings › Models choice (~/Library/Application Support/ClipGauge/models.json)
+_MP_TMP = tempfile.mkdtemp(prefix="renamer-selftest-mprefs-")
+os.environ["AI_VIDEO_RENAMER_MACHINE_PREFS"] = os.path.join(_MP_TMP, "models.json")
+atexit.register(shutil.rmtree, _MP_TMP, True)
 import describe_clip as dc  # noqa: E402
 import sidecar as sc  # noqa: E402
 import transcribe as tr  # noqa: E402
@@ -1310,7 +1314,7 @@ class TestTranscriptBundle(unittest.TestCase):
         self.assertEqual([c["path"] for c in b["clips"]], ["DaVinci Resolve/Proj/20261004_proj_moved_broll.MOV"])
         b = tb.build_bundle(self.cfg, tb.resolve_scope(self.cfg, paths=["DaVinci Resolve"]), now=self.now)
         self.assertEqual(b["counts"]["clips_scanned"], 1)  # CacheClip skipped
-        for bad in ("..", "/etc", "DaVinci Resolve/missing"):
+        for bad in ("..", "/etc", "/", "DaVinci Resolve/missing"):   # v0.8.3: other drives are fine, system folders not
             with self.assertRaises(ValueError, msg=bad):
                 tb.resolve_scope(self.cfg, paths=[bad])
         b = tb.build_bundle(self.cfg, tb.resolve_scope(self.cfg, everywhere=True), now=self.now)
@@ -3378,6 +3382,100 @@ class TestFileDates(unittest.TestCase):
         self.assertEqual(ph.photo_date({}, q), ("20260109", "file_name"))
         self.assertEqual(media.clip_date({}, self.mk("PXL_20260104_224143000.mp4", 0))[0], "20260104")
 
+
+
+class AnyDriveAndModelChoiceTests(unittest.TestCase):
+    """v0.8.3: transcript bundles for folders on any drive (not only the project drive) + per-Mac model choice."""
+
+    def setUp(self):
+        import project_queue as pq
+        import machine_prefs as mp
+        self.pq, self.mp = pq, mp
+        self.tmp = Path(tempfile.mkdtemp(prefix="cg-anydrive-"))
+        self.home = self.tmp / "Users" / "someone" / "Movies" / "Desk Project"     # an internal-drive folder
+        self.home.mkdir(parents=True)
+        (self.home / "a.mp4").write_bytes(b"x" * 10)
+        self.exp = self.tmp / "exports"
+        self.exp.mkdir()
+        self.cfg = dict(CFG, logs_dir=str(self.tmp / "logs"), inbox_dir=str(self.tmp / "inbox"),
+                        transcripts={"exports_dir": str(self.exp), "volume_root": str(self.tmp / "Volumes" / "Proj")})
+        self.sc = {"hold_sources": ["Held Project"], "protected_dirs": ["CacheClip"],
+                   "sync_marker": ".syncprojectinfo.json", "resolve_root": str(self.tmp / "nowhere")}
+        self.p = mock.patch("inplace.sort_cfg", return_value=self.sc)
+        self.p.start()
+        self.prefs = Path(os.environ["AI_VIDEO_RENAMER_MACHINE_PREFS"])
+
+    def tearDown(self):
+        self.p.stop()
+        self.prefs.unlink(missing_ok=True)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_bundle_scope_accepts_a_folder_off_the_project_drive(self):
+        sc = tb.resolve_scope(self.cfg, paths=[str(self.home)])
+        self.assertEqual(sc["dirs"], [(self.home, True)])
+        self.assertEqual(sc["slug"], "desk-project")
+        held = self.tmp / "Users" / "someone" / "Held Project"
+        held.mkdir(parents=True)
+        with self.assertRaises(ValueError):
+            tb.resolve_scope(self.cfg, paths=[str(held)])
+        res = tb.run(self.cfg, paths=[str(self.home)])                   # real run, no mocks: writes to exports/
+        self.assertTrue(Path(res["json"]).is_file() and Path(res["json"]).parent == self.exp)
+
+    def test_write_refusals(self):
+        self.assertIsNone(tb.write_refusal(self.cfg, self.home))
+        for bad in ("Held Project/x", "Lib/CacheClip", "Lib/Resolve Disk Database/p", "Lib/.hidden/p"):
+            d = self.tmp / bad
+            d.mkdir(parents=True)
+            self.assertIsNotNone(tb.write_refusal(self.cfg, d), bad)
+        synced = self.tmp / "Synced" / "Shots"
+        synced.mkdir(parents=True)
+        (self.tmp / "Synced" / ".syncprojectinfo.json").write_text("{}")
+        self.assertIn("Cloud-synced", tb.write_refusal(self.cfg, synced))
+
+    def test_transcript_saved_next_to_clips_on_another_drive(self):
+        it = self.pq.add(self.cfg, [str(self.home)])["added"][0]
+        before = (self.home / "a.mp4").stat().st_mtime
+        with mock.patch("check_resolve.resolve_running", return_value=False):
+            out = self.pq.save_transcripts_next_to_clips(self.cfg, it)
+        self.assertEqual([Path(w).name for w in out["written"]],
+                         ["Desk Project_transcripts.json", "Desk Project_transcripts.md"])
+        self.assertEqual((self.home / "a.mp4").stat().st_mtime, before)
+        self.assertNotIn("Lexar", json.dumps(out))
+        synced = self.tmp / "Synced"
+        synced.mkdir()
+        (synced / ".syncprojectinfo.json").write_text("{}")
+        (synced / "b.mp4").write_bytes(b"x")
+        s_it = dict(it, paths=[str(synced)], name="Synced")
+        with mock.patch("check_resolve.resolve_running", return_value=False):
+            self.assertEqual(self.pq.save_transcripts_next_to_clips(self.cfg, s_it)["written"], [])
+
+    def test_vision_model_choice_per_mac(self):
+        tier = {"prefer": "qwen2.5vl:7b", "alternates": ["qwen2.5vl:32b"]}
+        have = ["qwen2.5vl:7b", "qwen2.5vl:32b"]
+        cfg = dict(self.cfg, describe=dict(CFG.get("describe") or {}, model=None))
+        self.assertEqual(dc.choose_model(cfg, tier, have)[0], "qwen2.5vl:7b")      # no choice -> tier
+        self.prefs.write_text(json.dumps({"vision_model": "qwen2.5vl:32b"}))
+        self.assertEqual(dc.choose_model(cfg, tier, have)[0], "qwen2.5vl:32b")
+        self.assertEqual(dc.last_choice_source, "this Mac's choice")
+        self.assertEqual(dc.choose_model(cfg, tier, have, "qwen2.5vl:7b")[0], "qwen2.5vl:7b")   # --model still wins
+        self.prefs.write_text(json.dumps({"vision_model": "gemma3:27b"}))               # not installed -> tier
+        self.assertEqual(dc.choose_model(cfg, tier, have)[0], "qwen2.5vl:7b")
+        self.assertIn("not installed", dc.last_choice_source)
+        self.prefs.write_text(json.dumps({"vision_model": "Automatic"}))
+        self.assertEqual(self.mp.load(), {})
+
+    def test_whisper_model_choice_per_mac(self):
+        wd = self.tmp / "whisper"
+        wd.mkdir()
+        (wd / "ggml-medium.en.bin").write_bytes(b"x")
+        cfg = dict(self.cfg, whisper={"models_dir": str(wd), "model": {"pro": "large-v3-turbo"}})
+        with mock.patch.dict(os.environ, {"AI_VIDEO_RENAMER_WHISPER_MODEL": ""}):
+            self.assertEqual(tr.whisper_model_choice(cfg, "pro", {})[0], "large-v3-turbo")
+            self.prefs.write_text(json.dumps({"whisper_model": "medium.en"}))
+            self.assertEqual(tr.whisper_model_choice(cfg, "pro", {}), ("medium.en", "this Mac's choice"))
+            self.prefs.write_text(json.dumps({"whisper_model": "tiny.en"}))              # file missing -> tier
+            self.assertEqual(tr.whisper_model_choice(cfg, "pro", {})[0], "large-v3-turbo")
+        self.assertEqual(self.mp.whisper_models(cfg), ["medium.en"])
 
 if __name__ == "__main__":
     unittest.main()

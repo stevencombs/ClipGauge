@@ -66,6 +66,7 @@ final class ChatModel: ObservableObject {
     @Published var pendingNotes: (name: String, text: String)?
     @Published var clips: [(name: String, id: String)] = []
     @Published var savedTo: String?
+    @Published var focusRequest = 0          // v0.8.3: bump to put the cursor in the message box (⇧⌘A)
     private var task: URLSessionDataTask?
     private var started = Date()
 
@@ -83,7 +84,7 @@ final class ChatModel: ObservableObject {
     /// Why sending is blocked right now (nil = OK).
     var blocker: String? {
         guard let r = renamer else { return "Not ready." }
-        if r.runActive { return "A processing run is active — Ask the Model is paused so the run has the memory (16 GB Air). It's available again when the run finishes." }
+        if r.runActive { return "Paused while clips are processing — the run needs the memory. Ask the Model is available again when the run finishes." }
         if r.updates.jobActive { return "Models/tools are being updated — Ask the Model is available again when the update finishes." }
         if baseURL == nil { return "config describe.ollama_url isn't on this Mac — \(kAppName) only talks to a local Ollama." }
         return nil
@@ -123,8 +124,11 @@ final class ChatModel: ObservableObject {
     }
 
     private(set) var modelsLoaded = false
+    /// Previews (EXAMPLE DATA): don't ask the local Ollama, keep the mocked model list.
+    static var previewMode = false
 
     func loadModels(then: (() -> Void)? = nil) {
+        if ChatModel.previewMode { then?(); return }
         guard let b = baseURL else { then?(); return }
         var req = URLRequest(url: b.appendingPathComponent("api/tags"), timeoutInterval: 5)
         req.httpMethod = "GET"
@@ -158,6 +162,7 @@ final class ChatModel: ObservableObject {
     }
 
     func loadClips() {
+        if ChatModel.previewMode { return }
         renamer?.engine(["results", "--limit", "40"]) { j in
             let items = (j["items"] as? [[String: Any]]) ?? []
             self.clips = items.compactMap { d in
@@ -336,7 +341,11 @@ struct ChatView: View {
     @ObservedObject var chat: ChatModel
     @ObservedObject var model: RenamerModel
     var scrolls = true
+    /// v0.8.3: built into the main window (narrow side panel with a collapse button) instead of its own window.
+    var panel = false
+    var onCollapse: (() -> Void)? = nil
     @ViewState private var dropTarget = false
+    @FocusState private var inputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -359,29 +368,54 @@ struct ChatView: View {
             Divider()
             composer
         }
-        .frame(minWidth: 560, minHeight: scrolls ? 480 : nil)
+        .frame(minWidth: panel ? 320 : 560, minHeight: scrolls && !panel ? 480 : nil)
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTarget) { providers in
             loadURLs(providers) { urls in if let u = urls.first { chat.attachImage(url: u) } }
             return true
         }
         .onAppear { chat.loadModels(); chat.loadClips() }
+        .onChange(of: chat.focusRequest) { inputFocused = true }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles").foregroundStyle(.purple)
-            Picker("Model", selection: $chat.model) {
-                ForEach(chat.models.isEmpty ? [chat.model.isEmpty ? chat.defaultModel : chat.model] : chat.models, id: \.self) { m in
-                    Text(m == chat.defaultModel ? "\(m) (default)" : m).tag(m)
-                }
+    private var modelPicker: some View {
+        Picker(panel ? "" : "Model", selection: $chat.model) {
+            ForEach(chat.models.isEmpty ? [chat.model.isEmpty ? chat.defaultModel : chat.model] : chat.models, id: \.self) { m in
+                Text(m == chat.defaultModel ? "\(m) (default)" : m).tag(m)
             }
-            .frame(maxWidth: 300)
-            Spacer()
-            Button { chat.save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
-                .disabled(chat.messages.isEmpty).help("Save as Markdown in exports/chats/")
-            Button { chat.newChat() } label: { Label("New chat", systemImage: "plus.bubble") }
         }
-        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
+        .help("Model to chat with (installed Ollama models)")
+    }
+
+    @ViewBuilder private var toolbar: some View {
+        if panel {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles").foregroundStyle(.purple)
+                    Text("Ask the Model").font(.headline)
+                    Spacer()
+                    Button { chat.save() } label: { Image(systemName: "square.and.arrow.down") }
+                        .buttonStyle(.borderless).disabled(chat.messages.isEmpty).help("Save as Markdown in exports/chats/")
+                    Button { chat.newChat() } label: { Image(systemName: "plus.bubble") }
+                        .buttonStyle(.borderless).help("New chat")
+                    if let onCollapse {
+                        Button(action: onCollapse) { Image(systemName: "sidebar.right") }
+                            .buttonStyle(.borderless).help("Hide the chat (⇧⌘A or the Ask button shows it again)")
+                    }
+                }
+                modelPicker.labelsHidden().frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+        } else {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles").foregroundStyle(.purple)
+                modelPicker.frame(maxWidth: 300)
+                Spacer()
+                Button { chat.save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
+                    .disabled(chat.messages.isEmpty).help("Save as Markdown in exports/chats/")
+                Button { chat.newChat() } label: { Label("New chat", systemImage: "plus.bubble") }
+            }
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
+        }
     }
 
     private var thread: some View {
@@ -390,7 +424,9 @@ struct ChatView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Ask the local model").font(.title3.weight(.semibold))
                     Text("Runs on this Mac with Ollama — nothing is sent anywhere. Attach an image or a clip's notes and transcript to ask about it.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text("Pauses while clips are processing, so the run has the memory. ⇧⌘A jumps here.")
+                        .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, 20)
             }
@@ -430,6 +466,7 @@ struct ChatView: View {
                 TextField("Ask about your clips, names, transcripts…", text: $chat.input, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...6)
+                    .focused($inputFocused)
                     .onSubmit { chat.send() }
                 if chat.streaming {
                     Button { chat.stop() } label: { Label("Stop", systemImage: "stop.fill") }.keyboardShortcut(".")

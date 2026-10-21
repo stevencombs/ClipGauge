@@ -5,8 +5,8 @@ script-writing bot can read and cite back to the exact video.
 
   python3 scripts/build_transcript_bundle.py                          # all of inbox/ (incl. batch subfolders)
   python3 scripts/build_transcript_bundle.py --folder "Show 2026"     # just inbox/Show 2026/
-  python3 scripts/build_transcript_bundle.py --path "DaVinci Resolve/Retro Game Expo"   # any folder on the Lexar
-  python3 scripts/build_transcript_bundle.py --everywhere             # inbox/ + every Lexar folder with clip notes
+  python3 scripts/build_transcript_bundle.py --path "DaVinci Resolve/Retro Game Expo"   # relative to the project drive, or any absolute folder
+  python3 scripts/build_transcript_bundle.py --everywhere             # inbox/ + every project-drive folder with clip notes
   python3 scripts/build_transcript_bundle.py --date 2026-09-20        # only clips recorded that day (combines with the above)
   options: --include-silent (full entries for clips with no speech) · --omit-silent (don't list them at all)
            --exclude-photos (leave stills out; by default photos are listed with the silent assets)
@@ -15,7 +15,7 @@ script-writing bot can read and cite back to the exact video.
 
 Output (default exports/ in the project folder, created on first use):
   exports/transcripts-<scope>-<YYYYMMDD-HHMM>.json   schema "ai-video-renamer.transcript-bundle" v1:
-      metadata + how_to_use note + clips[] in recording-time order; each clip: file, path (relative to the Lexar
+      metadata + how_to_use note + clips[] in recording-time order; each clip: file, path (relative to the project drive
       root), original camera name, recorded_at, duration, clip_type, summary, keywords, on-screen text, has_speech,
       transcript text and segments[] {id "<file>#0003", start/end seconds, HH:MM:SS.mmm, text}.
   exports/transcripts-<scope>-<YYYYMMDD-HHMM>.md     the same, grouped by clip, compact enough to paste into a chat bot.
@@ -46,7 +46,7 @@ import notes_store as ns  # noqa: E402
 SCHEMA = "ai-video-renamer.transcript-bundle"
 SCHEMA_VERSION = 1
 TOOL = "AI-Video-Renamer"
-# Shared with notes_store (video extensions, Lexar search roots, folders never searched)
+# Shared with notes_store (video extensions, project-drive search roots, folders never searched)
 VIDEO_EXTS = ns.VIDEO_EXTS
 MEDIA_EXTS = ns.MEDIA_EXTS  # videos + photos: what a sidecar / store record can describe
 DEFAULT_SEARCH_ROOTS = ns.DEFAULT_SEARCH_ROOTS
@@ -64,7 +64,7 @@ CAM_TS_RE = re.compile(r"(?<!\d)(20\d{2})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2}
 HOW_TO_USE = [
     "This file is a transcript bundle of b-roll / A-roll video clips, exported by AI-Video-Renamer.",
     "clips[] is in recording-time order. Each clip is one video file; 'file' is its current file name and 'path' "
-    "its location relative to the Lexar drive root.",
+    "its location relative to the project drive root (or its full path when the clip is on another drive).",
     "Every spoken line is a segment with an id '<file>#NNNN' plus start/end time inside that clip. When you quote "
     "or adapt speech in a script, cite the segment id(s) (e.g. [20260920_show_vendor_broll.mp4#0003]) so the editor "
     "can find the exact video and timecode.",
@@ -78,7 +78,7 @@ HOW_TO_USE = [
 # ------------------------------------------------------------ helpers ----
 
 def volume_root(cfg: dict) -> Path:
-    """The Lexar drive root (parent of the project folder) — clip paths are reported relative to this."""
+    """The project drive root (parent of the project folder) — clip paths are reported relative to this."""
     return ns.volume_root(cfg)
 
 
@@ -116,6 +116,73 @@ def rel_to(p: Path, base: Path) -> str:
         return Path(os.path.relpath(p, base)).as_posix() if os.path.commonpath([str(p), str(base)]) == str(base) else str(p)
     except ValueError:
         return str(p)
+
+
+RESOLVE_DB_DIRS = ("Resolve Projects", "Resolve Disk Database", "Resolve Project Library", "Resolve Database",
+                   "Resolve Libraries")
+
+
+def write_refusal(cfg: dict, d: Path) -> str | None:
+    """Why ClipGauge must not WRITE a file into folder d (any drive), or None. Refused: held folders (hold_sources),
+    DaVinci Resolve's own folders (protected_dirs, its project library / disk database), hidden folders, packages,
+    and Blackmagic Cloud-synced projects (.syncprojectinfo.json in d or any parent)."""
+    import inplace
+    sc = inplace.sort_cfg(cfg)
+    held = {inplace._nfc(h) for h in sc.get("hold_sources") or []}
+    prot = set(sc.get("protected_dirs") or [])
+    try:
+        d = Path(os.path.realpath(d))
+    except OSError:
+        pass
+    for part in d.parts[1:]:
+        if inplace._nfc(part) in held:
+            return f"“{part}” is on hold — not touching it"
+        if part in prot or part in RESOLVE_DB_DIRS:
+            return f"“{part}” is one of DaVinci Resolve's own folders — never touched"
+        if part.startswith("."):
+            return f"hidden folder “{part}” — skipped"
+        if part.lower().endswith(inplace.PACKAGE_SUFFIXES):
+            return f"“{part}” is an app or package — skipped"
+    marker = sc.get("sync_marker") or ".syncprojectinfo.json"
+    for anc in [d, *d.parents]:
+        try:
+            if (anc / marker).exists():
+                return f"“{anc.name}” is a Blackmagic Cloud-synced project — never touched"
+        except OSError:
+            break
+    return None
+
+
+SYSTEM_DIRS = ("/System", "/Library", "/bin", "/sbin", "/usr", "/etc", "/private", "/dev", "/opt", "/cores",
+               "/Applications", "/var", "/tmp")
+
+
+def system_folder(p: Path) -> bool:
+    """The file-system root or a macOS system folder (never scanned; /tmp is allowed only below a temp dir)."""
+    try:
+        rp = os.path.realpath(p)
+    except OSError:
+        rp = str(p)
+    if rp == "/" or rp in ("/Volumes", "/Users"):
+        return True
+    tmp = os.path.realpath(os.environ.get("TMPDIR") or "/tmp")
+    if os.path.commonpath([rp, tmp]) == tmp and rp != tmp:
+        return False   # throw-away folders (tests)
+    for s in SYSTEM_DIRS:
+        rs = os.path.realpath(s)
+        if rp == rs or rp.startswith(rs.rstrip("/") + "/"):
+            return True
+    return False
+
+
+def scan_refusal(cfg: dict, d: Path) -> str | None:
+    """Reading clip notes is fine anywhere except held folders (they stay out of bundles)."""
+    import inplace
+    held = {inplace._nfc(h) for h in inplace.sort_cfg(cfg).get("hold_sources") or []}
+    for part in Path(d).parts[1:]:
+        if inplace._nfc(part) in held:
+            return f"“{part}” is on hold — not included"
+    return None
 
 
 def inside(p: Path, base: Path) -> bool:
@@ -327,14 +394,22 @@ def resolve_scope(cfg: dict, folder: str | None = None, paths: list[str] | None 
         labels = []
         for raw in paths:
             p = Path(raw)
-            p = p if p.is_absolute() else vol / p
-            if not inside(p, vol):
-                raise ValueError(f"{raw}: must be a folder on the Lexar drive ({vol})")
+            p = Path(os.path.expanduser(str(p)))
+            if not p.is_absolute() and ".." in p.parts:
+                raise ValueError(f"{raw}: use an absolute path for a folder outside the project drive")
+            p = p if p.is_absolute() else vol / p   # relative = on the project drive; absolute = any drive
+            if system_folder(p):
+                raise ValueError(f"{raw}: a system folder — choose a footage folder")
             if not p.is_dir():
+                if not p.exists() and not vol.is_dir():
+                    raise ValueError(f"{raw}: not found — project drive “{vol.name}” not connected?")
                 raise ValueError(f"{raw}: not a folder")
+            why = scan_refusal(cfg, p)
+            if why:
+                raise ValueError(f"{raw}: {why}")
             dirs.append((p, True))
             labels.append(rel_to(Path(os.path.realpath(p)), Path(os.path.realpath(vol))) or ".")
-        slug = slugify("-".join(Path(lbl).name or lbl for lbl in labels), 48) or "lexar"
+        slug = slugify("-".join(Path(lbl).name or lbl for lbl in labels), 48) or "folder"
         return {"kind": "path", "label": ", ".join(labels), "slug": slug, "dirs": dirs, "paths": labels}
     if everywhere:
         dirs.append((inbox, True))
@@ -342,7 +417,7 @@ def resolve_scope(cfg: dict, folder: str | None = None, paths: list[str] | None 
             p = vol / r
             if p.is_dir():
                 dirs.append((p, True))
-        return {"kind": "everywhere", "label": "inbox/ + " + ", ".join(search_roots(cfg)), "slug": "all-lexar", "dirs": dirs}
+        return {"kind": "everywhere", "label": "inbox/ + " + ", ".join(search_roots(cfg)), "slug": "all-drive", "dirs": dirs}
     return {"kind": "inbox", "label": "inbox/ (incl. subfolders)", "slug": "inbox", "dirs": [(inbox, True)]}
 
 
@@ -562,7 +637,7 @@ def build_markdown(b: dict) -> str:
     L.append(f"Generated {local_time(b['generated_at'])} · {c['clips_with_speech']} clip(s) with speech, "
              f"{c['clips_silent']} without · {round(b['total_speech_seconds'] / 60, 1)} min of speech · "
              f"{c['segments']} lines" + (f" · {c['photos']} photo(s) listed with the silent assets" if c.get("photos") else ""))
-    L += ["", "**For the AI:** each clip below is one video file (heading = file name, then its path on the Lexar drive). "
+    L += ["", "**For the AI:** each clip below is one video file (heading = file name, then its path on the project drive, or its full path on another drive). "
           "Lines are `[start → end] #NNNN text`, times inside that clip. Cite a line as `<file>#NNNN` "
           "(e.g. `" + next((c["segments"][0]["id"] for c in b["clips"] if c["segments"]), "clip.mp4#0001")
           + "`) so the editor can find the exact video and timecode. Transcripts are automatic and can mishear names; "
@@ -657,8 +732,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Consolidate clip transcripts (from .json sidecars) into one JSON + Markdown bundle")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--folder", help="only inbox/<FOLDER>/ (a batch folder)")
-    g.add_argument("--path", action="append", help="a folder on the Lexar, relative to the drive root (repeatable)")
-    g.add_argument("--everywhere", action="store_true", help="inbox/ + every Lexar search root (transcripts.search_roots)")
+    g.add_argument("--path", action="append", help="a folder: absolute (any drive) or relative to the project drive root (repeatable)")
+    g.add_argument("--everywhere", action="store_true", help="inbox/ + every project-drive search root (transcripts.search_roots)")
     ap.add_argument("--date", help="only clips recorded on this day (YYYY-MM-DD or YYYYMMDD)")
     s = ap.add_mutually_exclusive_group()
     s.add_argument("--include-silent", action="store_true", help="full entries for clips with no speech (default: brief list)")

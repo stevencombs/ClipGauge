@@ -145,10 +145,17 @@ final class SetupModel: ObservableObject {
             let (rc, js) = run(py, [r.appendingPathComponent("scripts/detect_ram.py").path, "--json"], cwd: r)
             if rc == 0, let d = js.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { tier = o }
         }
+        // v0.8.3: what this Mac actually uses (Settings › Models choice, else the tier) — detect_ram.py "in_use"
+        let inUse = tier["in_use"] as? [String: Any] ?? [:]
+        let usedVision = (inUse["vision_model"] as? String) ?? (tier["prefer_model"] as? String)
+        let usedWhisper = (inUse["whisper_model"] as? String) ?? (tier["whisper_model"] as? String)
         if !tier.isEmpty {
             let gb = (tier["ram_gb_binary"] as? NSNumber)?.doubleValue ?? 0
-            out.append(CheckItem(id: "tier", icon: "memorychip", title: "RAM tier", state: .ok,
-                                 detail: "\(Int(gb.rounded())) GB → \((tier["label"] as? String) ?? (tier["tier"] as? String) ?? "?") · \((tier["prefer_model"] as? String) ?? "?") + whisper \((tier["whisper_model"] as? String) ?? "?")"))
+            var d = "\(Int(gb.rounded())) GB → \((tier["label"] as? String) ?? (tier["tier"] as? String) ?? "?") · tier picks \((tier["prefer_model"] as? String) ?? "?") + whisper \((tier["whisper_model"] as? String) ?? "?")"
+            if usedVision != (tier["prefer_model"] as? String) || usedWhisper != (tier["whisper_model"] as? String) {
+                d += " · this Mac uses \(usedVision ?? "?") + whisper \(usedWhisper ?? "?") (Settings › General › Models)"
+            }
+            out.append(CheckItem(id: "tier", icon: "memorychip", title: "RAM tier", state: .ok, detail: d))
         } else {
             let gb = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824
             out.append(CheckItem(id: "tier", icon: "memorychip", title: "RAM tier", state: .warning,
@@ -156,7 +163,7 @@ final class SetupModel: ObservableObject {
         }
         if let r = root {
             let models = r.appendingPathComponent("models")
-            if let vlm = tier["prefer_model"] as? String {
+            if let vlm = usedVision {
                 let parts = vlm.split(separator: ":", maxSplits: 1).map(String.init)
                 let name = parts.first ?? vlm, tag = parts.count > 1 ? parts[1] : "latest"
                 // Ollama ≤ 0.39 kept manifests/registry.ollama.ai/…; 0.40 moved tags to manifests-v2/ollama.com/… (symlinks)
@@ -169,13 +176,15 @@ final class SetupModel: ObservableObject {
                 if onDisk && !served && ver != nil { detail += " · Ollama isn't serving this folder (set OLLAMA_MODELS)" }
                 if !onDisk && served { detail = "Ollama has it, but stored outside the project folder" }
                 if onDisk && served { detail += " · served by Ollama" }
-                out.append(CheckItem(id: "vlm", icon: "eye", title: "Vision model \(vlm)", state: state, detail: detail))
+                if let src = inUse["vision_source"] as? String { detail += " · \(src)" }
+                out.append(CheckItem(id: "vlm", icon: "eye", title: "Vision model \(vlm) · in use", state: state, detail: detail))
             }
-            if let wm = tier["whisper_model"] as? String {
+            if let wm = usedWhisper {
                 let f = models.appendingPathComponent("whisper/ggml-\(wm).bin")
                 let size = ((try? fm.attributesOfItem(atPath: f.path))?[.size] as? NSNumber)?.int64Value ?? 0
-                out.append(CheckItem(id: "wmodel", icon: "text.bubble", title: "Speech model \(wm)", state: size > 0 ? .ok : .missing,
-                                     detail: size > 0 ? "\(f.lastPathComponent) · \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))"
+                let wsrc = (inUse["whisper_source"] as? String).map { " · \($0)" } ?? ""
+                out.append(CheckItem(id: "wmodel", icon: "text.bubble", title: "Speech model \(wm) · in use", state: size > 0 ? .ok : .missing,
+                                     detail: size > 0 ? "\(f.lastPathComponent) · \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))\(wsrc)"
                                                       : "Not in \(models.appendingPathComponent("whisper").path)"))
             }
         }
@@ -328,7 +337,7 @@ struct SetupView: View {
             }
 
             PrefGroup(title: "Project folder",
-                      footer: "Holds the scripts, inbox/, logs/ and the AI models. It can live on an external drive (e.g. the Lexar) and moves between Macs with it.") {
+                      footer: "Holds the scripts, inbox/, logs/ and the AI models. It can live on any drive — internal, external or network — and an external drive moves between Macs with it.") {
                 PrefRow(label: model.root?.lastPathComponent ?? Project.missingTitle,
                         detail: model.root?.path ?? Project.remembered ?? "None chosen yet") {
                     if let r = model.root {

@@ -572,10 +572,13 @@ def save_transcripts_next_to_clips(cfg: dict, it: dict) -> dict:
         return {"written": [], "message": "Transcript next to clips skipped: DaVinci Resolve is open."}
     sc = inplace.sort_cfg(cfg)
     held = {inplace._nfc(h) for h in (sc.get("hold_sources") or []) + (sc.get("protected_dirs") or [])}
+    # any drive (internal, external, network); held / Resolve-owned / Cloud-synced folders are never written into
     dirs = [d for d in project_dirs(cfg, it) if Path(d).is_dir()
-            and not any(inplace._nfc(part) in held for part in Path(d).parts)]
+            and not any(inplace._nfc(part) in held for part in Path(d).parts)
+            and tb.write_refusal(cfg, Path(d)) is None]
     if not dirs:
-        return {"written": [], "message": "Transcript next to clips: no folder to write into."}
+        return {"written": [], "message": "Transcript next to clips: no folder to write into "
+                                          "(held, DaVinci Resolve's own, or Cloud-synced folders are skipped)."}
     s = tb.run(cfg, paths=dirs)
     name = re.sub(r"[/:\\\x00-\x1f]+", "-", str(it.get("name") or "")).strip(" .-") or "project"
     written: list[str] = []
@@ -607,7 +610,7 @@ def _bundle(cfg: dict, d: dict) -> str:
                 try:
                     cmd += ["--path", str(Path(p).relative_to(root))]
                 except ValueError:
-                    pass
+                    cmd += ["--path", str(p)]   # another drive: absolute path
         if "--path" not in cmd:
             return "Transcript bundle: no finished project folders to include."
     r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=1800)

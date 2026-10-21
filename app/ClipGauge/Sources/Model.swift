@@ -112,13 +112,13 @@ enum Project {
 
     static func remember(_ u: URL) { UserDefaults.standard.set(u.standardizedFileURL.path, forKey: "projectRoot") }
 
-    /// "Lexar not connected" / "Drive “X” not connected" / "No project folder yet".
+    /// "Project drive “X” not connected" / "Project folder not found" / "No project folder yet".
     static var missingTitle: String {
         guard let r = remembered else { return "No project folder yet" }
         let parts = r.split(separator: "/")
         if r.hasPrefix("/Volumes/"), parts.count >= 2 {
             let vol = String(parts[1])
-            return vol == "Lexar" ? "Lexar not connected" : "Drive “\(vol)” not connected"
+            return "Project drive “\(vol)” not connected"
         }
         return "Project folder not found"
     }
@@ -258,6 +258,7 @@ final class RenamerModel: ObservableObject {
     var showInstructions: () -> Void = {}
     var showMain: () -> Void = {}
     var showChat: (String?) -> Void = { _ in }
+    var showChatWindow: () -> Void = {}
 
     private var timer: Timer?
     private var lastInboxPoll = Date.distantPast

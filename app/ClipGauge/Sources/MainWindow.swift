@@ -7,10 +7,18 @@
 //              transcript view and search across every transcript.
 //   Tools ▾  — transcript bundle (project / queue / everything), move renamed clips into a folder, Sort into
 //              Projects, Instructions, Ask the Model, open inbox, clear the queue. ⚙︎ — Settings, Setup, About.
+//   Ask the Model (v0.8.3) — a chat panel built into the right side of this window, shown by default; the
+//              ✨ Ask button (or ⇧⌘A) shows it and puts the cursor in the message box. Paused while clips process.
 // Every action goes through scripts/clipgauge_cli.py (same locks and guards as the engine); nothing here renames.
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+
+/// UserDefaults key: is the Ask the Model panel open in the main window (default true).
+let kChatPanelKey = "ClipGaugeChatPanelOpen"
+/// Main window width that fits the queue plus the chat panel.
+let kMainWidthWithChat: CGFloat = 1200
+let kChatPanelWidth: CGFloat = 370
 
 enum MainTab: String, CaseIterable { case queue = "Queue", results = "Results" }
 enum ResultFilter: String, CaseIterable { case all = "All", review = "Needs review", renamed = "Renamed", other = "Skipped / dry run" }
@@ -215,12 +223,28 @@ final class MainModel: ObservableObject {
 struct MainView: View {
     @ObservedObject var main: MainModel
     @ObservedObject var model: RenamerModel
+    /// v0.8.3: the Ask the Model panel (nil = no panel, e.g. older previews).
+    var chat: ChatModel? = nil
     var scrolls = true
     @ViewState private var dropTarget = false
+    @AppStorage(kChatPanelKey) private var chatOpen = true
 
     var body: some View {
+        HStack(spacing: 0) {
+            content
+            if let chat, chatOpen {
+                Divider()
+                ChatView(chat: chat, model: model, scrolls: scrolls, panel: true, onCollapse: { chatOpen = false })
+                    .frame(width: kChatPanelWidth)
+                    .frame(maxHeight: scrolls ? .infinity : nil, alignment: .top)
+            }
+        }
+        .frame(minWidth: chat != nil && chatOpen ? kMainWidthWithChat - 40 : 860, minHeight: scrolls ? 560 : nil)
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
-            Toolbar(main: main, model: model)
+            Toolbar(main: main, model: model, hasChat: chat != nil)
             Divider()
             Group {
                 switch main.tab {
@@ -241,7 +265,7 @@ struct MainView: View {
                 .padding(.horizontal, 20).padding(.vertical, 8)
             }
         }
-        .frame(minWidth: 860, minHeight: scrolls ? 560 : nil)
+        .frame(minWidth: 520, minHeight: scrolls ? 560 : nil)
         .overlay(dropTarget ? RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 3).padding(4) : nil)
         .onDrop(of: [UTType.fileURL], isTargeted: $dropTarget) { providers in
             loadURLs(providers) { main.add($0) }
@@ -261,6 +285,8 @@ struct MainView: View {
 private struct Toolbar: View {
     @ObservedObject var main: MainModel
     @ObservedObject var model: RenamerModel
+    var hasChat = false
+    @AppStorage(kChatPanelKey) private var chatOpen = true
 
     var body: some View {
         HStack(spacing: 12) {
@@ -277,13 +303,21 @@ private struct Toolbar: View {
             }
             Spacer()
             statusPill
+            if hasChat {
+                Button {
+                    if chatOpen { chatOpen = false } else { model.showChat(nil) }
+                } label: { Label("Ask", systemImage: "sparkles") }
+                .help(chatOpen ? "Hide the Ask the Model chat" : "Show the Ask the Model chat (⇧⌘A)")
+                .tint(.purple)
+            }
             Menu {
                 Button("Transcript Bundle…") { main.showBundle = true }
                 Button("Move Renamed Clips into a Folder…") { main.showMove = true }
                     .disabled(main.movableCount == 0 || model.runActive || model.dryRun)
                 Button("Sort into Projects…") { model.showSort() }
                 Button("Instructions…") { model.showInstructions() }
-                Button("Ask the Model…") { model.showChat(nil) }.keyboardShortcut("k")
+                Button("Ask the Model") { model.showChat(nil) }.keyboardShortcut("k")
+                Button("Ask the Model in a Separate Window") { model.showChatWindow() }
                 Divider()
                 Button("Open Inbox") { model.openInbox() }
                 Button("Open Exports") { main.openExports() }

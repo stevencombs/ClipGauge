@@ -75,6 +75,12 @@ def main() -> int:
         "override_env": os.environ.get("AI_VIDEO_RENAMER_TIER"),
         "override_tier_config": tiers_cfg.get("override_tier"),
     }
+    try:  # v0.8.3: what this Mac actually uses (Settings › Models choice, else the tier)
+        import machine_prefs
+        from _common import load_config
+        payload["in_use"] = machine_prefs.effective(load_config())
+    except Exception as e:  # noqa: BLE001
+        payload["in_use_error"] = str(e)[:200]
     if args.json:
         print(json.dumps(payload, indent=2))
     else:

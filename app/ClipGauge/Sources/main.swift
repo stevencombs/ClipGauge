@@ -1,7 +1,7 @@
 // ClipGauge — the all-in-one menu bar app for AI-Video-Renamer (v0.6; was "ClipGuage" ≤ v0.5). Styled after GrokGauge.
 //   ClipGauge.app                      menu bar app (LSUIElement) + main window + Ask the Model chat
 //   .../MacOS/ClipGauge --print-state  one poll, print the derived state (for scripts / debugging)
-//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08]   write the preview PNGs offscreen
+//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08|--only-v083]   write the preview PNGs offscreen
 //   .../MacOS/ClipGauge --sync-selftest                          settings-sync checks in a temporary folder
 import AppKit
 import Combine
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
     private lazy var main = MainModel(renamer: model)
     private lazy var mainWindow = HostedWindow(title: kAppName, autosave: "ClipGaugeMain", resizable: true,
                                                minSize: NSSize(width: 860, height: 560)) { [unowned self] in
-        AnyView(MainView(main: self.main, model: self.model))
+        AnyView(MainView(main: self.main, model: self.model, chat: self.chat))
     }
     private lazy var chat = ChatModel(renamer: model)
     private lazy var chatWindow = HostedWindow(title: "Ask the Model", autosave: "ClipGaugeChat", resizable: true,
@@ -76,13 +76,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
     func openMain(adding urls: [URL] = []) {
         if popover.isShown { popover.performClose(nil) }
         mainWindow.show()
+        if (UserDefaults.standard.object(forKey: kChatPanelKey) as? Bool) ?? true { mainWindow.ensureContentWidth(kMainWidthWithChat) }
         if !urls.isEmpty { main.add(urls) }
     }
 
-    /// Ask the Model; with a prompt it is sent right away (unless a run/update blocks it — then it waits in the box).
+    /// Ask the Model (v0.8.3: the panel in the main window — opened, widened to fit and focused); with a prompt it is
+    /// sent right away (unless a run/update blocks it — then it waits in the box). Same conversation as the window.
     func openChat(_ prompt: String? = nil) {
         if popover.isShown { popover.performClose(nil) }
+        UserDefaults.standard.set(true, forKey: kChatPanelKey)
+        mainWindow.show()
+        mainWindow.ensureContentWidth(kMainWidthWithChat)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.chat.focusRequest += 1 }
+        sendChatPrompt(prompt)
+    }
+
+    /// Tools ▾ › Ask the Model in a Separate Window: the old standalone chat window (same conversation).
+    func openChatWindow() {
+        if popover.isShown { popover.performClose(nil) }
         chatWindow.show()
+    }
+
+    private func sendChatPrompt(_ prompt: String?) {
         if let p = prompt, !p.isEmpty {
             if chat.blocker == nil && !chat.streaming { chat.send(p) } else { chat.input = p; chat.error = chat.blocker }
         }
@@ -136,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
         model.showInstructions = { [weak self] in self?.openInstructions() }
         model.showMain = { [weak self] in self?.openMain() }
         model.showChat = { [weak self] p in self?.openChat(p) }
+        model.showChatWindow = { [weak self] in self?.openChatWindow() }
         model.onRunStarted = { [weak self] in self?.main.tab = .queue }
         MainMenu.install(target: self)
         model.objectWillChange
@@ -232,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
 
 /// What the menu bar shows (v0.6.1: depends on Settings › Menu Bar). Default: the ClipGauge mark (template) + a
 /// semibold monospaced-digit percent while a run is active, coloured like GrokGauge's levels. Orange-tinted mark =
-/// paused for Resolve; "–" = Lexar not connected.
+/// paused for Resolve; "–" = project drive not connected.
 struct StatusItemLook {
     let image: NSImage?
     let title: NSAttributedString
@@ -284,7 +300,7 @@ struct StatusItemLook {
         var tint: NSColor? = nil
         var busy = false
         if !m.lexarOK {
-            text = " –"; tip = "ClipGauge — Lexar not connected"
+            text = " –"; tip = "ClipGauge — \(Project.missingTitle)"
         } else if let p = m.progress {
             text = " \(p.pct)%"; color = Level.normal.nsColor; tint = Level.normal.nsColor; busy = true
             tip = "ClipGauge — processing clip \(max(1, p.index)) of \(p.total) (\(p.pct)%)"
@@ -426,7 +442,10 @@ enum MainMenu {
         let mainItem = NSMenuItem(title: "Open \(kAppName)", action: #selector(AppDelegate.openMainAction(_:)), keyEquivalent: "0")
         mainItem.target = target
         app.addItem(mainItem)
-        let ask = NSMenuItem(title: "Ask the Model…", action: #selector(AppDelegate.openChatAction(_:)), keyEquivalent: "k")
+        // v0.8.3: ⇧⌘A opens the main window's chat panel and focuses the message box (⌘K in Tools ▾ does the same;
+        // ⌘A stays Select All, ⌃⌥C stays the global popover shortcut).
+        let ask = NSMenuItem(title: "Ask the Model", action: #selector(AppDelegate.openChatAction(_:)), keyEquivalent: "A")
+        ask.keyEquivalentModifierMask = [.command, .shift]
         ask.target = target
         app.addItem(ask)
         app.addItem(.separator())
@@ -528,6 +547,11 @@ enum CLI {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let m = RenamerModel(preview: true)
         settle(m)
+        if CommandLine.arguments.contains("--only-v083") {
+            let ok = renderV083(m, dir: dir)
+            print(ok ? "Wrote v0.8.3 previews to \(dir.path)" : "Some previews failed")
+            return ok ? 0 : 1
+        }
         if CommandLine.arguments.contains("--only-v08") {
             let ok = renderV08(m, dir: dir)
             print(ok ? "Wrote v0.8 previews to \(dir.path)" : "Some previews failed")
@@ -771,6 +795,59 @@ enum CLI {
     /// v0.7.4: dozens of clips dropped from a held folder → one summary row, scrolling list, pinned controls, status.
     /// v0.8 (replaces the v0.6–v0.7.4 Add Clips previews): queue (empty, waiting, running), results with projects,
     /// transcript search, the minimal popover. Example data is labelled EXAMPLE DATA and never touches disk.
+    /// v0.8.3: the main window with the built-in Ask the Model panel (EXAMPLE DATA conversation), the panel paused
+    /// while clips process, and Settings › General with the per-Mac Models choice.
+    static func renderV083(_ m: RenamerModel, dir: URL) -> Bool {
+        var ok = true
+        UserDefaults.standard.set(true, forKey: kChatPanelKey)
+        ChatModel.previewMode = true
+        defer { ChatModel.previewMode = false }
+        let chat = ChatModel(renamer: m)
+        chat.models = ["qwen2.5vl:7b", "qwen2.5vl:32b"]
+        chat.model = "qwen2.5vl:7b"
+        chat.messages = [
+            ChatMessage(role: "user", text: "Which clips in Video Project have someone talking to the camera?"),
+            ChatMessage(role: "assistant", text: "Two of them: the host welcome (talking-head, 0:42) and the scene briefing (A-roll, 1:10). The other clips are silent B-roll pans."),
+            ChatMessage(role: "user", text: "Suggest a better name for the scene briefing clip."),
+            ChatMessage(role: "assistant", text: "20261010_video-project_scene-briefing_talking-head.mp4 keeps the date first and says what's in it."),
+        ]
+        let waiting = MainModel(renamer: m)
+        waiting.exampleData = true
+        waiting.exampleQueue = PreviewData.queueMock(running: false)
+        for scheme in [ColorScheme.dark, .light] {
+            let name = scheme == .dark ? "dark" : "light"
+            ok = renderView(MainView(main: waiting, model: m, chat: chat).frame(width: kMainWidthWithChat, height: 640), scheme: scheme,
+                            to: dir.appendingPathComponent("v083-main-chat-\(name).png")) && ok
+        }
+        let running = MainModel(renamer: m)
+        running.exampleData = true
+        running.exampleQueue = PreviewData.queueMock(running: true)
+        let savedLock = m.lock
+        m.lock = ["argv": ["run_pipeline.py", "--example"], "pid": 0]
+        let idle = ChatModel(renamer: m)
+        idle.models = chat.models
+        idle.model = chat.model
+        ok = renderView(MainView(main: running, model: m, chat: idle).frame(width: kMainWidthWithChat, height: 640), scheme: .dark,
+                        to: dir.appendingPathComponent("v083-main-chat-paused-dark.png")) && ok
+        m.lock = savedLock
+        UserDefaults.standard.set(false, forKey: kChatPanelKey)
+        ok = renderView(MainView(main: waiting, model: m, chat: chat).frame(width: 980, height: 640), scheme: .dark,
+                        to: dir.appendingPathComponent("v083-main-chat-collapsed-dark.png")) && ok
+        UserDefaults.standard.set(true, forKey: kChatPanelKey)
+        let mm = MachineModels.shared
+        mm.installedVision = ["qwen2.5vl:7b", "qwen2.5vl:32b"]
+        mm.installedWhisper = ["base.en", "large-v3-turbo"]
+        mm.usedVision = "qwen2.5vl:7b"; mm.usedVisionSource = "RAM tier"
+        mm.usedWhisper = "large-v3-turbo"; mm.usedWhisperSource = "RAM tier"
+        mm.tier = "pro"
+        for scheme in [ColorScheme.dark, .light] {
+            let name = scheme == .dark ? "dark" : "light"
+            ok = renderView(SettingsView(store: LayoutStore.shared, model: m, nav: SettingsNav(.layout), scrollable: false), scheme: scheme,
+                            to: dir.appendingPathComponent("v083-settings-general-models-\(name).png")) && ok
+        }
+        return ok
+    }
+
     static func renderV074(_ m: RenamerModel, dir: URL) -> Bool { renderV08(m, dir: dir, prefix: "v074-") }
 
     static func renderV08(_ m: RenamerModel, dir: URL, prefix: String = "v08-") -> Bool {
