@@ -1,7 +1,7 @@
 // ClipGauge — the all-in-one menu bar app for AI-Video-Renamer (v0.6; was "ClipGuage" ≤ v0.5). Styled after GrokGauge.
 //   ClipGauge.app                      menu bar app (LSUIElement) + main window + Ask the Model chat
 //   .../MacOS/ClipGauge --print-state  one poll, print the derived state (for scripts / debugging)
-//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08|--only-v083|--only-v084]   write the preview PNGs offscreen
+//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08|--only-v083|--only-v084|--only-v085]   write the preview PNGs offscreen
 //   .../MacOS/ClipGauge --sync-selftest                          settings-sync checks in a temporary folder
 import AppKit
 import Combine
@@ -152,6 +152,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
     }
 
     /// v0.8.4: Finder / Spotlight / Launchpad on an already running ClipGauge opens the main window (with the chat).
+    /// v0.8.5: and unload when it closes — Quit (menu, popover, ⌘Q, logout) unloads the models ClipGauge loaded and
+    /// stops an Ollama server ClipGauge started itself (≤ 8 s). A clip run keeps going after Quit, as before.
+    private var quitReady = false
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitReady { return .terminateNow }
+        OllamaRuntime.shared.shutdown { [weak self] in
+            self?.quitReady = true
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { openMain() }
         return true
@@ -219,6 +231,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
             .store(in: &cancellables)
         LayoutStore.shared.start()
         model.start()
+        // v0.8.5: the model runs while ClipGauge is open — start the project's Ollama and keep the chat model loaded.
+        OllamaRuntime.shared.desired = { [weak self] in
+            guard let c = self?.chat else { return "qwen2.5vl:7b" }
+            return ChatModel.isRealName(c.model) ? c.model : c.defaultModel
+        }
+        OllamaRuntime.shared.$phase
+            .receive(on: RunLoop.main)
+            .sink { [weak self] p in if case .ready = p, self?.chat.modelsLoaded == false { self?.chat.loadModels() } }
+            .store(in: &cancellables)
+        OllamaRuntime.shared.start(renamer: model)
         updateStatusItem()
         // First run on a Mac without a project folder: open Setup instead of a blank gauge.
         if model.root == nil && Project.remembered == nil {
@@ -597,6 +619,11 @@ enum CLI {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let m = RenamerModel(preview: true)
         settle(m)
+        if CommandLine.arguments.contains("--only-v085") {
+            let ok = renderV085(m, dir: dir)
+            print(ok ? "Wrote v0.8.5 previews to \(dir.path)" : "Some previews failed")
+            return ok ? 0 : 1
+        }
         if CommandLine.arguments.contains("--only-v084") {
             let ok = renderV084(m, dir: dir)
             print(ok ? "Wrote v0.8.4 previews to \(dir.path)" : "Some previews failed")
@@ -903,6 +930,68 @@ enum CLI {
         let brewNoCask = !AppInfo.homebrewInstall(bundlePath: "/Applications/ClipGauge.app", caskrooms: [tmp.path + "/missing"])
         print("v084 check: upgrade-reset=\(reset) keeps-later-choice=\(kept) brew-detect=\(brewYes) not-brew-path=\(brewNoPath) not-brew-no-cask=\(brewNoCask)")
         ok = ok && reset && kept && brewYes && brewNoPath && brewNoCask
+        return ok
+    }
+
+    /// v0.8.5: the chat header's model status (ready, loading, server not answering with Retry) + runtime self-checks.
+    static func renderV085(_ m: RenamerModel, dir: URL) -> Bool {
+        var ok = true
+        ChatModel.previewMode = true
+        defer { ChatModel.previewMode = false; OllamaRuntime.shared.setPreview(.idle, resolved: nil) }
+        let chat = ChatModel(renamer: m)
+        chat.models = ["qwen2.5vl:7b", "qwen2.5vl:32b"]
+        chat.model = "qwen2.5vl:7b"
+        let rt = OllamaRuntime.shared
+        let states: [(String, OllamaRuntime.Phase)] = [
+            ("ready", .ready("qwen2.5vl:7b")), ("loading", .loading("qwen2.5vl:7b")), ("starting", .starting),
+            ("unreachable", .unreachable("Ollama isn't answering on 127.0.0.1:11434. Started the project's Ollama service; it waits for the project drive.")),
+        ]
+        for (name, p) in states {
+            rt.setPreview(p, resolved: "qwen2.5vl:7b")
+            ok = renderView(PopoverView(model: m, chat: chat, chatScrolls: false), scheme: .dark,
+                            to: dir.appendingPathComponent("v085-popover-\(name)-dark.png")) && ok
+        }
+        rt.setPreview(.ready("qwen2.5vl:7b"), resolved: "qwen2.5vl:7b")
+        ok = renderView(PopoverView(model: m, chat: chat, chatScrolls: false), scheme: .light,
+                        to: dir.appendingPathComponent("v085-popover-ready-light.png")) && ok
+        // Self-checks (printed; any failure fails the render).
+        let R = OllamaRuntime.resolve
+        let hex = String(repeating: "a", count: 64)
+        let exact = R("qwen2.5vl:7b", ["qwen2.5vl:32b", "qwen2.5vl:7b"], []) == "qwen2.5vl:7b"
+        let prefix = R("qwen2.5vl:7b", ["qwen2.5vl:7b-q8_0", "llama3:8b"], []) == "qwen2.5vl:7b-q8_0"
+        let latest = R("qwen2.5vl", ["qwen2.5vl:latest"], []) == "qwen2.5vl:latest" && R("llava:latest", ["llava"], []) == "llava"
+        let family = R("qwen2.5vl:7b", ["llama3:8b", "qwen2.5vl:32b"], []) == "qwen2.5vl:32b"
+        let vision = R("qwen2.5vl:7b", ["gemma3:4b", "llama3:8b"], ["llama3:8b"]) == "llama3:8b"
+        let anyChat = R("qwen2.5vl:7b", ["llama3:8b"], []) == "llama3:8b"
+        let none = R("qwen2.5vl:7b", [], []) == nil && R("qwen2.5vl:7b", ["llamacpp:" + hex, "nomic-embed-text:latest"], []) == nil
+        let d = UserDefaults(suiteName: "ClipGaugeV085Check-\(ProcessInfo.processInfo.processIdentifier)")!
+        let toggleDefault = OllamaRuntime.keepLoaded(in: d)
+        d.set(false, forKey: kKeepModelLoadedKey)
+        let toggleOff = !OllamaRuntime.keepLoaded(in: d)
+        d.removePersistentDomain(forName: "ClipGaugeV085Check-\(ProcessInfo.processInfo.processIdentifier)")
+        let quitIdle = OllamaRuntime.quitPlan(loaded: ["a:1", "b:2", "a:1"], ours: [], runActive: false, runModel: nil) == ["a:1", "b:2"]
+        let quitRun = OllamaRuntime.quitPlan(loaded: ["a:1", "b:2", "c:3"], ours: ["a:1", "b:2"], runActive: true, runModel: "a:1") == ["b:2"]
+        let ps: [String: Any] = ["models": [["name": "a:1", "expires_at": "2318-02-01T00:00:00Z"],
+                                            ["name": "b:2", "expires_at": "2026-10-22T20:10:00-04:00"]]]
+        let pinned = OllamaRuntime.pinned(fromPS: ps) == ["a:1"] && OllamaRuntime.names(fromPS: ps) == ["a:1", "b:2"]
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cg-models-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let man = tmp.appendingPathComponent("manifests-v2/registry.ollama.ai/library/qwen2.5vl")
+        try? FileManager.default.createDirectory(at: man, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: man.appendingPathComponent("._7b").path, contents: Data())
+        let diskAppleDoubleOnly = !OllamaRuntime.modelsOnDisk(tmp)
+        FileManager.default.createFile(atPath: man.appendingPathComponent("7b").path, contents: Data("{}".utf8))
+        let diskReal = OllamaRuntime.modelsOnDisk(tmp) && !OllamaRuntime.modelsOnDisk(tmp.appendingPathComponent("missing"))
+        let retry = OllamaRuntime.describe(.unreachable("x"), keep: true).retry && OllamaRuntime.describe(.noModel("x"), keep: true).retry
+            && !OllamaRuntime.describe(.ready("m"), keep: true).retry && !OllamaRuntime.describe(.loading("m"), keep: true).retry
+        let msgServer = ChatModel.notReadyText(.unreachable("Ollama isn't answering"), models: [], expected: "m").hasPrefix("Ollama isn't answering")
+        let msgModel = ChatModel.notReadyText(.ready("m"), models: [], expected: "m").contains("lists no chat model")
+        print("v085 check: resolve-exact=\(exact) resolve-prefix=\(prefix) resolve-latest=\(latest) resolve-family=\(family) "
+              + "fallback-vision=\(vision) fallback-any=\(anyChat) none=\(none) toggle-default-on=\(toggleDefault) toggle-off=\(toggleOff) "
+              + "quit-idle-all=\(quitIdle) quit-run-keeps-run-model=\(quitRun) pinned=\(pinned) disk-appledouble-ignored=\(diskAppleDoubleOnly) "
+              + "disk-manifest=\(diskReal) retry-on-errors=\(retry) msg-server=\(msgServer) msg-model=\(msgModel)")
+        ok = ok && exact && prefix && latest && family && vision && anyChat && none && toggleDefault && toggleOff && quitIdle
+            && quitRun && pinned && diskAppleDoubleOnly && diskReal && retry && msgServer && msgModel
         return ok
     }
 

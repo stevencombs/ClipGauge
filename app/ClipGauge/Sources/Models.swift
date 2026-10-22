@@ -82,6 +82,7 @@ final class MachineModels: ObservableObject {
 struct ModelsPrefGroup: View {
     @ObservedObject var models: MachineModels = .shared
     @ObservedObject var model: RenamerModel
+    @AppStorage(kKeepModelLoadedKey) private var keepLoaded = true   // v0.8.5, per Mac
 
     var body: some View {
         PrefGroup(title: "Models on this Mac",
@@ -112,6 +113,13 @@ struct ModelsPrefGroup: View {
                 .labelsHidden().frame(width: 230)
                 .disabled(model.runActive)
                 .help(model.runActive ? "Change it after the current run" : "Models found in models/whisper")
+            }
+            Divider()
+            PrefRow(label: "Keep model loaded while \(kAppName) is open",
+                    detail: "Starts Ollama and keeps the chat model in memory, so answers start right away. Unloaded when "
+                        + "\(kAppName) quits; paused while clips process.") {
+                Toggle("", isOn: Binding(get: { keepLoaded }, set: { keepLoaded = $0; OllamaRuntime.shared.keepLoadedChanged() }))
+                    .labelsHidden().toggleStyle(.switch)
             }
         }
         .onAppear { if !ChatModel.previewMode { models.read(); models.refresh(model) } }

@@ -2,6 +2,8 @@
 // leaves the Mac. History + follow-ups, a model picker (installed models; default = the tier's vision model), an
 // image or a clip's notes/transcript as context, copy, save as Markdown into exports/chats/, new chat, stop.
 // Blocked while a processing run or an update is active (the Air has 16 GB: one model at a time).
+// v0.8.5: OllamaRuntime keeps the server up and the model loaded while the app is open; the model is matched by
+// name prefix with a fallback to any installed vision/chat model; errors say whether the server or the model is missing.
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -59,7 +61,9 @@ final class ChatModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var input = ""
     @Published var models: [String] = []
-    @Published var model = ""
+    @Published var model = "" {
+        didSet { if model != oldValue && ChatModel.isRealName(model) && modelsLoaded { OllamaRuntime.shared.ensure() } }
+    }
     @Published var streaming = false
     @Published var error: String?
     @Published var pendingImage: (name: String, data: Data)?
@@ -73,9 +77,11 @@ final class ChatModel: ObservableObject {
     init(renamer: RenamerModel) { self.renamer = renamer }
 
     /// Loopback Ollama URL from config (describe.ollama_url); anything that isn't this Mac is refused.
-    var baseURL: URL? {
+    var baseURL: URL? { ChatModel.ollamaBase(root: renamer?.root) }
+
+    static func ollamaBase(root: URL?) -> URL? {
         var s = "http://127.0.0.1:11434"
-        if let r = renamer?.root, let cfg = readJSONObject(r.appendingPathComponent("config/config.json")),
+        if let r = root, let cfg = readJSONObject(r.appendingPathComponent("config/config.json")),
            let u = (cfg["describe"] as? [String: Any])?["ollama_url"] as? String, !u.isEmpty { s = u }
         guard let u = URL(string: s), let h = u.host, ["127.0.0.1", "localhost", "::1"].contains(h) else { return nil }
         return u
@@ -134,16 +140,21 @@ final class ChatModel: ObservableObject {
         req.httpMethod = "GET"
         URLSession(configuration: .ephemeral).dataTask(with: req) { data, _, err in
             let o = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-            let names = ChatModel.chatModels((o?["models"] as? [[String: Any]]) ?? [])
+            let rows = (o?["models"] as? [[String: Any]]) ?? []
+            let names = ChatModel.chatModels(rows)
+            let vision = rows.compactMap { d -> String? in
+                (d["capabilities"] as? [String])?.contains("vision") == true ? d["name"] as? String : nil
+            }
             DispatchQueue.main.async {
-                let def = self.defaultModel
+                // v0.8.5: the tier's model by name, else the same model under another tag, else any vision/chat model
+                let def = OllamaRuntime.resolve(self.defaultModel, among: names, vision: vision) ?? self.defaultModel
                 // default first, the rest alphabetical
                 self.models = names.contains(def) ? [def] + names.filter { $0 != def } : names
                 if !names.isEmpty { self.modelsLoaded = true }
                 if !ChatModel.isRealName(self.model) || (!names.isEmpty && !names.contains(self.model)) {
                     self.model = names.contains(def) || names.isEmpty ? def : names[0]
                 }
-                if err != nil && names.isEmpty { self.error = "Ollama isn't answering on \(self.baseURL?.absoluteString ?? "127.0.0.1:11434"). Start it (Setup shows how), then try again." }
+                if err != nil && names.isEmpty { self.error = "Ollama isn't answering on \(self.baseURL?.absoluteString ?? "127.0.0.1:11434"). Retry starts it." }
                 then?()
             }
         }.resume()
@@ -224,16 +235,22 @@ final class ChatModel: ObservableObject {
         // v0.6.1: the popover's Ask box could send before the model list had loaded → "model is required" (HTTP 400).
         if !modelsLoaded || !ChatModel.isRealName(model) || !models.contains(model) {
             let pending = textIn ?? input
+            let ok = { [weak self] in
+                guard let self else { return false }
+                return self.modelsLoaded && ChatModel.isRealName(self.model) && self.models.contains(self.model)
+            }
             loadModels { [weak self] in
                 guard let self else { return }
-                if self.modelsLoaded && ChatModel.isRealName(self.model) && self.models.contains(self.model) {
-                    self.send(pending, done: done)
-                } else {
-                    self.input = pending
-                    self.error = self.models.isEmpty
-                        ? "No chat model is available from Ollama yet (expected \(self.defaultModel)). Check Setup, then try again."
-                        : "Pick a model in the Model menu (default: \(self.defaultModel)), then send again."
-                    done?()
+                if ok() { self.send(pending, done: done); return }
+                // v0.8.5: start (or repair) the server, wait for it, then try once more before giving up
+                self.error = nil
+                OllamaRuntime.shared.ensure(force: true) {
+                    self.loadModels {
+                        if ok() { self.send(pending, done: done); return }
+                        self.input = pending
+                        self.error = ChatModel.notReadyText(OllamaRuntime.shared.phase, models: self.models, expected: self.defaultModel)
+                        done?()
+                    }
                 }
             }
             return
@@ -258,8 +275,10 @@ final class ChatModel: ObservableObject {
             if !msg.error { payload.append(d) }
         }
         let isDefault = model == defaultModel
+        OllamaRuntime.shared.noteUsed(model)   // unloaded at Quit
         let body: [String: Any] = ["model": model, "messages": payload, "stream": true,
-                                   "keep_alive": isDefault ? "5m" : "30s", "options": ["num_ctx": 8192]]
+                                   "keep_alive": OllamaRuntime.shared.chatKeepAlive(for: model, isDefault: isDefault),
+                                   "options": ["num_ctx": 8192]]
         var req = URLRequest(url: base.appendingPathComponent("api/chat"), timeoutInterval: 300)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -289,6 +308,17 @@ final class ChatModel: ObservableObject {
         streaming = true
         task = session.dataTask(with: req)
         task?.resume()
+    }
+
+    /// v0.8.5: exactly what is wrong — the server isn't answering, or it answers without the model.
+    static func notReadyText(_ p: OllamaRuntime.Phase, models: [String], expected: String) -> String {
+        switch p {
+        case .unreachable(let s), .noModel(let s), .failed(let s): return s
+        default: break
+        }
+        return models.isEmpty
+            ? "Ollama is running but lists no chat model (expected \(expected)). Setup › Install Missing… pulls it, or Retry."
+            : "Pick a model in the Model menu (default: \(expected)), then send again."
     }
 
     func stop() {
@@ -403,12 +433,14 @@ struct ChatView: View {
                     }
                 }
                 modelPicker.labelsHidden().frame(maxWidth: .infinity)
+                OllamaStatusLine(chat: chat)
             }
             .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
         } else {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
                 modelPicker.frame(maxWidth: 300)
+                OllamaStatusLine(chat: chat, compact: true)
                 Spacer()
                 Button { chat.save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
                     .disabled(chat.messages.isEmpty).help("Save as Markdown in exports/chats/")
@@ -445,7 +477,13 @@ struct ChatView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let e = chat.error {
-                Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                    Button("Retry") { chat.error = nil; OllamaRuntime.shared.ensure(force: true) { chat.loadModels() } }
+                        .controlSize(.small)
+                }
+            } else if !panel {
+                OllamaStatusLine(chat: chat, onlyProblems: true)
             }
             HStack(spacing: 8) {
                 if let i = chat.pendingImage { chip("photo", i.name) { chat.pendingImage = nil } }

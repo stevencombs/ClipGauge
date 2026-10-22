@@ -43,7 +43,13 @@ struct PopoverChatCard: View {
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if let e = chat.error {
-                    Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                        Button("Retry") { chat.error = nil; OllamaRuntime.shared.ensure(force: true) { chat.loadModels() } }
+                            .controlSize(.small)
+                    }
+                } else {
+                    OllamaStatusLine(chat: chat, onlyProblems: true)   // the full reason, with Retry
                 }
                 composer
             }
@@ -65,8 +71,7 @@ struct PopoverChatCard: View {
             Image(systemName: "sparkles").foregroundStyle(.purple)
             Text("Ask the Model").font(.callout.weight(.semibold))
             if open {
-                Text(chat.model.isEmpty ? chat.defaultModel : chat.model)
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                OllamaStatusLine(chat: chat, compact: true)   // v0.8.5: starting / loading model / ready
             }
             Spacer()
             if open {

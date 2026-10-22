@@ -35,7 +35,7 @@ The cask lives in [stevencombs/homebrew-tap](https://github.com/stevencombs/home
    and check it with the `.sha256` file next to it:
 
    ```sh
-   shasum -a 256 -c ClipGauge-0.8.4.zip.sha256
+   shasum -a 256 -c ClipGauge-0.8.5.zip.sha256
    ```
 
 2. Unzip it and drag **ClipGauge.app** into `/Applications`.
@@ -55,11 +55,11 @@ ClipGauge is ad-hoc signed, not notarized by Apple. The Homebrew cask clears the
 > It is not made, endorsed, or supported by Blackmagic Design (DaVinci Resolve), Ollama, Alibaba (Qwen) or
 > OpenAI (Whisper). Their names are trademarks of their owners.
 
-> **New in 0.8.4:** **Ask the Model** is the first thing you see: it sits at the top of the menu bar popover, and the
-> main window (with its chat panel) opens at launch. Homebrew installs are told to update with
-> `brew upgrade --cask clipgauge`. See [What's new](#whats-new-in-clipgauge-v084-ask-the-model-in-the-first-window).
+> **New in 0.8.5:** the model is ready whenever ClipGauge is open. ClipGauge starts the project's Ollama, keeps the
+> chat model loaded and shows **Starting / Loading model / Ready** in the chat header; Quit unloads it again. Problems
+> say whether the server or the model is missing, with **Retry**. See [What's new](#whats-new-in-clipgauge-v085-the-model-is-ready-while-clipgauge-is-open).
 
-<p align="center"><img src="docs/screenshots/v084-popover-chat-dark.png" width="380" alt="ClipGauge popover with Ask the Model at the top (example data)"></p>
+<p align="center"><img src="docs/screenshots/v085-popover-ready-dark.png" width="380" alt="ClipGauge popover with Ask the Model at the top, model ready (example data)"></p>
 
 <p align="center"><img src="docs/screenshots/v083-main-chat-dark.png" width="860" alt="ClipGauge main window with the Ask the Model chat panel (example data)"></p>
 
@@ -706,6 +706,24 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 - **Minimal popover:** warnings, the current project with progress, a queue summary, Pause / Resume, Open.
 - **Removed:** duplicate controls (per-tab Start buttons, popover shortcuts, app-menu duplicates) and the legacy web UI.
 - v0.7.6 fixes included: a folder moved during a run is found again; hand-edited names aren't processed twice.
+
+### What's new in ClipGauge v0.8.5: the model is ready while ClipGauge is open
+
+- **The model runs while ClipGauge is open.** At launch, when the project drive mounts and every minute, ClipGauge
+  makes sure the project's Ollama server is running (it starts the project's Ollama LaunchAgent if there is one, else
+  `ollama serve` with `OLLAMA_MODELS=<project>/models`) and keeps the chat model loaded, so the first answer starts
+  right away. If the model is pushed out of memory it is loaded again.
+- **And unloaded when it closes.** Quit (menu, popover or ⌘Q) unloads the models ClipGauge loaded. An Ollama server
+  ClipGauge started itself is stopped; the project's LaunchAgent server keeps running with no model in memory.
+  A clip run still keeps going after Quit, as before, with its model.
+- **Status in the chat header:** Starting Ollama… / Loading qwen2.5vl:7b… / Ready, and paused while clips process.
+- **Clear errors with Retry:** "Ollama isn't answering" (server) is told apart from "no chat model installed" (model).
+  Retry starts the server, or restarts it when it runs but can't see the project's models (for example after
+  `brew upgrade` replaced the Ollama it was started from and macOS refuses the old process the drive).
+- **The tier's model is found by name**, also under another tag of the same model, and falls back to any installed
+  vision or chat model instead of failing.
+- **Settings › General › Models on this Mac › Keep model loaded while ClipGauge is open** (on by default, per Mac).
+  Off: Ollama still starts, and the model loads on the first question and unloads after a few idle minutes.
 
 ### What's new in ClipGauge v0.8.4: Ask the Model in the first window
 
