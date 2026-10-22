@@ -51,7 +51,7 @@
   <div class="glow" aria-hidden="true"></div>
   <div class="wrap hero-grid">
     <div class="hero-copy">
-      <p class="eyebrow"><span class="dot"></span>v0.8.3 · Free &amp; open source · macOS 14+</p>
+      <p class="eyebrow"><span class="dot"></span>v0.8.4 · Free &amp; open source · macOS 14+</p>
       <h1>Your clips, named <span class="grad">by local AI.</span></h1>
       <p class="lede">ClipGauge lives in your Mac's menu bar. Drop in a folder of camera files and it looks at every clip, listens to it, and renames it where it sits, so <code>CAM_0034.MP4</code> becomes a name you can actually search. Nothing leaves your Mac.</p>
 
@@ -71,8 +71,12 @@
     </div>
 
     <figure class="hero-shot">
-      <div class="mock pop" role="img" aria-label="The ClipGauge popover while a queue runs: Video Project, clip 21 of 52, describe step, 92 minutes left, queue summary, Pause and Open ClipGauge buttons">
+      <div class="mock pop" role="img" aria-label="The ClipGauge popover while a queue runs: Ask the Model (paused during the run), Video Project, clip 21 of 52, describe step, 92 minutes left, queue summary, Pause and Open ClipGauge buttons">
         <div class="pop-head"><img src="assets/icon-256.png" alt="" width="22" height="22"><b>ClipGauge</b><span class="pill">Renamer · Live</span><span class="gear">⚙︎</span></div>
+        <div class="pop-card">
+          <h4>✦ Ask the Model</h4>
+          <p class="dim">Paused while clips are processing, back when the run finishes</p>
+        </div>
         <div class="pop-card">
           <h4>Video Project · clip 21 of 52</h4>
           <div class="bar"><span style="width:40%"></span></div>
@@ -81,9 +85,9 @@
           <p class="dim">Last: 20261004_retro-game-expo_host-intro_talking-head.mp4</p>
           <div class="pop-btns"><span class="mbtn">Pause</span><span class="mbtn">Open ClipGauge</span></div>
         </div>
-        <div class="pop-foot"><span>v0.8.3</span><span>Support ClipGauge…</span><span>Quit</span></div>
+        <div class="pop-foot"><span>v0.8.4</span><span>Support ClipGauge…</span><span>Quit</span></div>
       </div>
-      <figcaption>ClipGauge 0.8.3, shown with example data</figcaption>
+      <figcaption>ClipGauge 0.8.4, shown with example data</figcaption>
     </figure>
   </div>
 
@@ -157,7 +161,7 @@
       <div class="mini"><span class="mi">↻</span><div><h4>Resumes where it stopped</h4><p>Stopped, quit, crashed or the Mac went to sleep? <strong>Resume</strong> picks up with the next unfinished clip.</p></div></div>
       <div class="mini"><span class="mi">◎</span><div><h4>Sees and listens</h4><p>Ollama's <code>qwen2.5vl</code> looks at 9 frames of each clip; whisper.cpp writes down what's said.</p></div></div>
       <div class="mini"><span class="mi">▣</span><div><h4>Photos too</h4><p>JPEG, HEIC, DNG, PNG and more, dated from the camera's own EXIF time.</p></div></div>
-      <div class="mini"><span class="mi">✦</span><div><h4>Ask the model, right in the window</h4><p>A chat panel with the local model sits beside the queue. Pick a model, attach a clip's transcript, press <kbd>⇧⌘A</kbd> to jump in. It pauses while clips process.</p></div></div>
+      <div class="mini"><span class="mi">✦</span><div><h4>Ask the model, right in the first window</h4><p>The chat sits at the top of the menu bar popover and beside the queue in the main window. Pick a model, attach a clip's transcript, press <kbd>⇧⌘A</kbd> to jump in. It pauses while clips process.</p></div></div>
       <div class="mini"><span class="mi">⚙</span><div><h4>Pick your models per Mac</h4><p>Choose the vision and speech models in Settings, or leave it on Automatic for your Mac's memory.</p></div></div>
       <div class="mini"><span class="mi">⌨</span><div><h4>Global shortcut</h4><p>Press <kbd>⌃⌥C</kbd> from anywhere. Settings is <kbd>⌘,</kbd>, with tabs that match GrokGauge.</p></div></div>
       <div class="mini"><span class="mi">⇄</span><div><h4>Synced preferences</h4><p>Point it at a folder your Macs already sync. Only preferences go there, never clips, notes or transcripts.</p></div></div>
@@ -242,10 +246,10 @@
           <code>brew install --cask stevencombs/tap/clipgauge</code>
           <button class="copy" type="button" data-copy="brew install --cask stevencombs/tap/clipgauge" aria-label="Copy Homebrew install command">Copy</button>
         </div>
-        <p>Or download <code>ClipGauge-0.8.3.zip</code>, unzip it and drag <strong>ClipGauge.app</strong> into Applications. Each release has a <code>.sha256</code> file so you can check the download.</p>
+        <p>Or download <code>ClipGauge-0.8.4.zip</code>, unzip it and drag <strong>ClipGauge.app</strong> into Applications. Each release has a <code>.sha256</code> file so you can check the download.</p>
         <div class="cmd cmd-sm">
-          <code>shasum -a 256 -c ClipGauge-0.8.3.zip.sha256</code>
-          <button class="copy" type="button" data-copy="shasum -a 256 -c ClipGauge-0.8.3.zip.sha256" aria-label="Copy checksum command">Copy</button>
+          <code>shasum -a 256 -c ClipGauge-0.8.4.zip.sha256</code>
+          <button class="copy" type="button" data-copy="shasum -a 256 -c ClipGauge-0.8.4.zip.sha256" aria-label="Copy checksum command">Copy</button>
         </div>
         <a class="btn btn-ghost btn-sm" href="https://github.com/stevencombs/ClipGauge/releases/latest">Latest release →</a>
       </div>

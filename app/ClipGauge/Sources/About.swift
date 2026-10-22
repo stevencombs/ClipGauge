@@ -11,6 +11,14 @@ enum AppInfo {
     static let contactURL = URL(string: "mailto:retroCombs@icloud.com")!
     /// Tips (PayPal.Me). Opens in the browser; ClipGauge sends nothing.
     static let tipURL = URL(string: "https://paypal.me/stevencombs")!
+    /// v0.8.4: installed with `brew install --cask stevencombs/tap/clipgauge` — this copy lives in /Applications
+    /// and Homebrew's Caskroom has a clipgauge entry. Such copies update with `brew upgrade --cask clipgauge`.
+    static var isHomebrewInstall: Bool { homebrewInstall(bundlePath: Bundle.main.bundlePath) }
+    static func homebrewInstall(bundlePath: String, fm: FileManager = .default,
+                                caskrooms: [String] = ["/opt/homebrew/Caskroom/clipgauge", "/usr/local/Caskroom/clipgauge"]) -> Bool {
+        guard (bundlePath as NSString).standardizingPath == "/Applications/ClipGauge.app" else { return false }
+        return caskrooms.contains { fm.fileExists(atPath: $0) }
+    }
     static var makerLogo: NSImage? {
         Bundle.main.url(forResource: "retrocombs-logo", withExtension: "png").flatMap { NSImage(contentsOf: $0) }
     }
@@ -39,7 +47,9 @@ struct AboutTab: View {
             }
             MakerCard()
             PrefGroup(title: "Updates",
-                      footer: "Compares this app with the ClipGauge source in your project folder (app/ClipGauge) — no network, no account. Nothing installs automatically. Models and tools have their own check in Setup › Updates.") {
+                      footer: AppInfo.isHomebrewInstall
+                        ? "Installed with Homebrew: compares this app with the latest ClipGauge release on GitHub (no account), falling back to the source in your project folder. Update with brew upgrade --cask clipgauge. Nothing installs automatically. Models and tools have their own check in Setup › Updates."
+                        : "Compares this app with the ClipGauge source in your project folder (app/ClipGauge) — no network, no account. Nothing installs automatically. Models and tools have their own check in Setup › Updates.") {
                 Toggle("Check for updates daily", isOn: $store.settings.checkForUpdates)
                     .padding(.vertical, 6)
                 Divider()
@@ -47,7 +57,12 @@ struct AboutTab: View {
                     if updates.isChecking { ProgressView().controlSize(.small) }
                     Button("Check Now") { updates.checkNow() }.disabled(updates.isChecking)
                 }
-                if updates.available != nil {
+                if updates.available != nil && AppInfo.isHomebrewInstall {
+                    Divider()
+                    PrefRow(label: "Update with Homebrew", detail: "\(AppUpdateMonitor.brewCommand) — in Terminal; quit ClipGauge first") {
+                        Button("Copy Command") { updates.copyUpdateCommand() }
+                    }
+                } else if updates.available != nil {
                     Divider()
                     PrefRow(label: "Rebuild from the project", detail: "zsh app/ClipGauge/build.sh — quit ClipGauge first") {
                         Button("Copy Command") { updates.copyBuildCommand() }

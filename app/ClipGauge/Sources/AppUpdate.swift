@@ -90,10 +90,18 @@ final class AppUpdateMonitor: ObservableObject {
         guard persist, !isChecking else { return }
         isChecking = true
         let r = root()
+        let brew = AppInfo.isHomebrewInstall
         DispatchQueue.global(qos: .utility).async {
-            let found = r.flatMap { Self.sourceVersion(root: $0) }
+            let source = r.flatMap { Self.sourceVersion(root: $0) }
+            // v0.8.4: a Homebrew install compares with the latest GitHub release (what `brew upgrade` installs);
+            // if GitHub can't be reached it falls back to the project source as before.
+            let release = brew ? Self.latestReleaseVersion() : nil
+            let found = release ?? source
             DispatchQueue.main.async {
-                if let r, found == nil {
+                if release != nil {
+                    self.lastError = nil
+                    self.available = found.flatMap { Self.isNewer($0, than: AppInfo.version) ? $0 : nil }
+                } else if let r, found == nil {
                     self.lastError = FileManager.default.fileExists(atPath: r.path) ? "No ClipGauge source in the project folder" : "Project folder not connected"
                     self.available = nil
                 } else if r == nil {
@@ -130,5 +138,33 @@ final class AppUpdateMonitor: ObservableObject {
     func copyBuildCommand() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(Self.buildCommand(root: root()), forType: .string)
+    }
+
+    /// v0.8.4: the command that updates this copy — `brew upgrade --cask clipgauge` for a Homebrew install
+    /// (stevencombs/tap), else the rebuild command.
+    static let brewCommand = "brew upgrade --cask clipgauge"
+    func copyUpdateCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(AppInfo.isHomebrewInstall ? Self.brewCommand : Self.buildCommand(root: root()), forType: .string)
+    }
+
+    /// v0.8.4: Homebrew installs also ask GitHub for the latest public release (one small HTTPS request, no
+    /// account); what brew can install is what matters for them. Returns "0.8.4" or nil.
+    static let releasesAPI = URL(string: "https://api.github.com/repos/stevencombs/ClipGauge/releases/latest")!
+    static func latestReleaseVersion(timeout: TimeInterval = 10) -> String? {
+        var req = URLRequest(url: releasesAPI, timeoutInterval: timeout)
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("ClipGauge/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
+        let sem = DispatchSemaphore(value: 0)
+        var out: String?
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            defer { sem.signal() }
+            guard (resp as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = j["tag_name"] as? String, let v = SemVer(tag) else { return }
+            out = v.description
+        }.resume()
+        _ = sem.wait(timeout: .now() + timeout + 2)
+        return out
     }
 }

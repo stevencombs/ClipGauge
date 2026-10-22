@@ -35,7 +35,7 @@ The cask lives in [stevencombs/homebrew-tap](https://github.com/stevencombs/home
    and check it with the `.sha256` file next to it:
 
    ```sh
-   shasum -a 256 -c ClipGauge-0.8.3.zip.sha256
+   shasum -a 256 -c ClipGauge-0.8.4.zip.sha256
    ```
 
 2. Unzip it and drag **ClipGauge.app** into `/Applications`.
@@ -55,9 +55,11 @@ ClipGauge is ad-hoc signed, not notarized by Apple. The Homebrew cask clears the
 > It is not made, endorsed, or supported by Blackmagic Design (DaVinci Resolve), Ollama, Alibaba (Qwen) or
 > OpenAI (Whisper). Their names are trademarks of their owners.
 
-> **New in 0.8.3:** **Ask the Model** is built into the main window as a chat panel (⇧⌘A), you can pick the vision and
-> speech models per Mac in Settings, and transcripts are saved next to clips on **any** drive.
-> See [What's new](#whats-new-in-clipgauge-v083-chat-in-the-main-window-model-choice-any-drive).
+> **New in 0.8.4:** **Ask the Model** is the first thing you see: it sits at the top of the menu bar popover, and the
+> main window (with its chat panel) opens at launch. Homebrew installs are told to update with
+> `brew upgrade --cask clipgauge`. See [What's new](#whats-new-in-clipgauge-v084-ask-the-model-in-the-first-window).
+
+<p align="center"><img src="docs/screenshots/v084-popover-chat-dark.png" width="380" alt="ClipGauge popover with Ask the Model at the top (example data)"></p>
 
 <p align="center"><img src="docs/screenshots/v083-main-chat-dark.png" width="860" alt="ClipGauge main window with the Ask the Model chat panel (example data)"></p>
 
@@ -413,7 +415,9 @@ your settings over. The menu bar shows the mark, plus a green `NN%` while a run 
   (for example: an empty 1.2 KB recording is marked *needs review* on the next run). **Dismiss** hides it for that run;
   `logs/status.json` is never edited.
 - **Inbox card:** last renamed file, needs-review count, clips waiting, Instructions on/off.
-- **Ask the model…** box (⌘K): opens the chat with your question.
+- **Ask the Model** (v0.8.4, at the top, open by default): the conversation, a message box and the model in use.
+  Same conversation as the main window's chat panel; the expand button (or ⇧⌘A) continues there with the model
+  picker, attachments and Save. The chevron collapses it to one line.
 - **Open at login** switch (needs the app in /Applications).
 - **Buttons:** **Start / Stop**, **Open** (the main window), **Inbox** (Finder), **Sort into Projects…**.
 
@@ -702,6 +706,18 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
 - **Minimal popover:** warnings, the current project with progress, a queue summary, Pause / Resume, Open.
 - **Removed:** duplicate controls (per-tab Start buttons, popover shortcuts, app-menu duplicates) and the legacy web UI.
 - v0.7.6 fixes included: a folder moved during a run is found again; hand-edited names aren't processed twice.
+
+### What's new in ClipGauge v0.8.4: Ask the Model in the first window
+
+- **Chat at the top of the popover.** A menu bar click (or ⌃⌥C) opens the popover with **Ask the Model** right at the
+  top: type and press Return. It's the same conversation as the main window's chat panel; the expand button or
+  **⇧⌘A** continues there. It pauses while clips are processing, as before.
+- **The main window opens at launch** with the chat panel beside the queue and the cursor in the message box.
+  Opening ClipGauge again from Finder, Spotlight or Launchpad brings the window back.
+- **Hidden chat is reset once:** if the chat panel was hidden in an earlier version, 0.8.4 shows it again on first launch.
+- **Homebrew-aware updates:** a copy installed with `brew install --cask stevencombs/tap/clipgauge` checks the latest
+  GitHub release and shows `brew upgrade --cask clipgauge` (with Copy) instead of the rebuild command.
+- **No stale copies:** an older ClipGauge started from another folder opens the newer one in /Applications and quits.
 
 ### What's new in ClipGauge v0.8.3: chat in the main window, model choice, any drive
 

@@ -12,11 +12,16 @@ struct PopoverView: View {
     @ObservedObject var model: RenamerModel
     @ObservedObject var layout = LayoutStore.shared
     @ObservedObject var appUpdates = AppUpdateMonitor.shared
+    /// v0.8.4: Ask the Model right at the top of the popover (nil = no chat, e.g. older previews).
+    var chat: ChatModel? = nil
+    var chatScrolls = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
                 .padding(.top, 8)   // v0.6.1: the title row sat too close to the popover's top edge
+            // v0.8.4: the popover is the first window ClipGauge shows, so the chat sits right here.
+            if let chat, model.lexarOK { PopoverChatCard(chat: chat, model: model, scrolls: chatScrolls) }
             // v0.8: a minimal popover — warnings, the queue (status + current project), last-run problem.
             // Everything else lives in the ClipGauge window (Queue / Results / Tools ▾) and Settings.
             VStack(alignment: .leading, spacing: 12) {
@@ -29,7 +34,7 @@ struct PopoverView: View {
             footer
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: chat != nil && model.lexarOK ? kPopoverWidthWithChat : 320)
     }
 
     /// One popover section (Settings › Layout decides order and visibility).
@@ -62,6 +67,7 @@ struct PopoverView: View {
                 .background(.fill.tertiary, in: Capsule())
             Menu {
                 Button("Open \(kAppName)…") { model.showMain() }
+                Button("Ask the Model…") { model.showChat(nil) }
                 Button("Settings…") { model.showSettings() }
                 Divider()
                 Button("Quit \(kAppName)") { NSApp.terminate(nil) }
@@ -628,15 +634,16 @@ private struct UpdateBanner: View {
                 Button("Details", action: open).buttonStyle(.borderless).font(.caption)
             }
             HStack(spacing: 6) {
-                Text("zsh app/ClipGauge/build.sh")
+                // v0.8.4: Homebrew installs update with brew, not by rebuilding from the project source.
+                Text(AppInfo.isHomebrewInstall ? AppUpdateMonitor.brewCommand : "zsh app/ClipGauge/build.sh")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Spacer()
-                Button(copied ? "Copied" : "Copy") { updates.copyBuildCommand(); copied = true }
+                Button(copied ? "Copied" : "Copy") { updates.copyUpdateCommand(); copied = true }
                     .buttonStyle(.borderless)
                     .font(.caption)
-                    .accessibilityLabel("Copy the rebuild command")
+                    .accessibilityLabel(AppInfo.isHomebrewInstall ? "Copy the Homebrew upgrade command" : "Copy the rebuild command")
             }
         }
         .padding(10)

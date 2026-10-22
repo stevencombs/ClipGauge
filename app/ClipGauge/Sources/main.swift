@@ -1,7 +1,7 @@
 // ClipGauge — the all-in-one menu bar app for AI-Video-Renamer (v0.6; was "ClipGuage" ≤ v0.5). Styled after GrokGauge.
 //   ClipGauge.app                      menu bar app (LSUIElement) + main window + Ask the Model chat
 //   .../MacOS/ClipGauge --print-state  one poll, print the derived state (for scripts / debugging)
-//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08|--only-v083]   write the preview PNGs offscreen
+//   .../MacOS/ClipGauge --render-preview DIR [--chat-prompt TEXT] [--only-v061|--only-v07|--only-v072|--only-v074|--only-v08|--only-v083|--only-v084]   write the preview PNGs offscreen
 //   .../MacOS/ClipGauge --sync-selftest                          settings-sync checks in a temporary folder
 import AppKit
 import Combine
@@ -120,7 +120,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
     }
     private var appliedSettings: ClipGaugeSettings?
 
+    /// v0.8.4: on the first launch of a new version, show the chat again everywhere (main window panel and the
+    /// popover card) — a panel hidden in an earlier version must not keep hiding the new chat.
+    static let lastLaunchedVersionKey = "ClipGaugeLastLaunchedVersion"
+    static func migrateDefaults(_ d: UserDefaults = .standard, version: String = kVersion) {
+        let last = d.string(forKey: lastLaunchedVersionKey)
+        if last.flatMap(SemVer.init).map({ $0 < SemVer("0.8.4")! }) ?? true {
+            d.set(true, forKey: kChatPanelKey)
+            d.set(true, forKey: kPopoverChatKey)
+        }
+        if last != version { d.set(version, forKey: lastLaunchedVersionKey) }
+    }
+
+    /// v0.8.4: never keep running an older duplicate. If this copy isn't /Applications/ClipGauge.app (the
+    /// Homebrew / standard install) and that copy is newer, open it instead and quit. Returns true when handing off.
+    private func handOffToNewerInstalledCopy() -> Bool {
+        let installed = URL(fileURLWithPath: "/Applications/ClipGauge.app")
+        let me = URL(fileURLWithPath: Bundle.main.bundlePath).standardizedFileURL
+        guard me.path != installed.path,
+              let info = NSDictionary(contentsOf: installed.appendingPathComponent("Contents/Info.plist")),
+              (info["CFBundleIdentifier"] as? String) == Bundle.main.bundleIdentifier,
+              let v = info["CFBundleShortVersionString"] as? String,
+              AppUpdateMonitor.isNewer(v, than: kVersion) else { return false }
+        NSLog("ClipGauge %@ at %@: a newer copy (%@) is installed at %@ — opening it instead", kVersion, me.path, v, installed.path)
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: installed, configuration: cfg) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+        return true
+    }
+
+    /// v0.8.4: Finder / Spotlight / Launchpad on an already running ClipGauge opens the main window (with the chat).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { openMain() }
+        return true
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if handOffToNewerInstalledCopy() { return }
+        AppDelegate.migrateDefaults()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = kAppName
         statusItem.isVisible = true
@@ -134,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
             button.window?.registerForDraggedTypes([.fileURL])
             button.window?.delegate = self
         }
-        let host = NSHostingController(rootView: PopoverView(model: model))
+        // v0.8.4: the popover (the first thing a menu bar click shows) carries Ask the Model at its top.
+        let host = NSHostingController(rootView: PopoverView(model: model, chat: chat))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         popover.behavior = .transient
@@ -183,6 +223,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSDr
         // First run on a Mac without a project folder: open Setup instead of a blank gauge.
         if model.root == nil && Project.remembered == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.openSetup() }
+        } else {
+            // v0.8.4: the first window at launch is the main window with Ask the Model beside the queue.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self else { return }
+                self.openMain()
+                NSApp.activate(ignoringOtherApps: true)
+                if (UserDefaults.standard.object(forKey: kChatPanelKey) as? Bool) ?? true {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.chat.focusRequest += 1 }
+                }
+            }
         }
     }
 
@@ -547,6 +597,11 @@ enum CLI {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let m = RenamerModel(preview: true)
         settle(m)
+        if CommandLine.arguments.contains("--only-v084") {
+            let ok = renderV084(m, dir: dir)
+            print(ok ? "Wrote v0.8.4 previews to \(dir.path)" : "Some previews failed")
+            return ok ? 0 : 1
+        }
         if CommandLine.arguments.contains("--only-v083") {
             let ok = renderV083(m, dir: dir)
             print(ok ? "Wrote v0.8.3 previews to \(dir.path)" : "Some previews failed")
@@ -797,6 +852,60 @@ enum CLI {
     /// transcript search, the minimal popover. Example data is labelled EXAMPLE DATA and never touches disk.
     /// v0.8.3: the main window with the built-in Ask the Model panel (EXAMPLE DATA conversation), the panel paused
     /// while clips process, and Settings › General with the per-Mac Models choice.
+    /// v0.8.4: the popover with Ask the Model at its top (EXAMPLE DATA conversation, empty, collapsed, paused).
+    static func renderV084(_ m: RenamerModel, dir: URL) -> Bool {
+        var ok = true
+        let saved = UserDefaults.standard.object(forKey: kPopoverChatKey)
+        defer { if let saved { UserDefaults.standard.set(saved, forKey: kPopoverChatKey) } else { UserDefaults.standard.removeObject(forKey: kPopoverChatKey) } }
+        UserDefaults.standard.set(true, forKey: kPopoverChatKey)
+        ChatModel.previewMode = true
+        defer { ChatModel.previewMode = false }
+        let chat = ChatModel(renamer: m)
+        chat.models = ["qwen2.5vl:7b", "qwen2.5vl:32b"]
+        chat.model = "qwen2.5vl:7b"
+        chat.messages = [
+            ChatMessage(role: "user", text: "Which clips in Video Project have someone talking to the camera?"),
+            ChatMessage(role: "assistant", text: "Two of them: the host welcome (talking-head, 0:42) and the scene briefing (A-roll, 1:10). The rest are silent B-roll."),
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            let name = scheme == .dark ? "dark" : "light"
+            ok = renderView(PopoverView(model: m, chat: chat, chatScrolls: false), scheme: scheme,
+                            to: dir.appendingPathComponent("v084-popover-chat-\(name).png")) && ok
+        }
+        let empty = ChatModel(renamer: m)
+        empty.models = chat.models
+        empty.model = chat.model
+        ok = renderView(PopoverView(model: m, chat: empty, chatScrolls: false), scheme: .dark,
+                        to: dir.appendingPathComponent("v084-popover-chat-empty-dark.png")) && ok
+        UserDefaults.standard.set(false, forKey: kPopoverChatKey)
+        ok = renderView(PopoverView(model: m, chat: chat, chatScrolls: false), scheme: .dark,
+                        to: dir.appendingPathComponent("v084-popover-chat-collapsed-dark.png")) && ok
+        UserDefaults.standard.set(true, forKey: kPopoverChatKey)
+        let savedLock = m.lock
+        m.lock = ["argv": ["run_pipeline.py", "--example"], "pid": 0]
+        ok = renderView(PopoverView(model: m, chat: empty, chatScrolls: false), scheme: .dark,
+                        to: dir.appendingPathComponent("v084-popover-chat-paused-dark.png")) && ok
+        m.lock = savedLock
+        // Self-checks for the upgrade reset and Homebrew detection (printed; failures fail the render).
+        let d = UserDefaults(suiteName: "ClipGaugeV084Check-\(ProcessInfo.processInfo.processIdentifier)")!
+        d.set(false, forKey: kChatPanelKey); d.set(false, forKey: kPopoverChatKey); d.set("0.8.3", forKey: AppDelegate.lastLaunchedVersionKey)
+        AppDelegate.migrateDefaults(d, version: "0.8.4")
+        let reset = d.bool(forKey: kChatPanelKey) && d.bool(forKey: kPopoverChatKey) && d.string(forKey: AppDelegate.lastLaunchedVersionKey) == "0.8.4"
+        d.set(false, forKey: kChatPanelKey)
+        AppDelegate.migrateDefaults(d, version: "0.8.4")
+        let kept = !d.bool(forKey: kChatPanelKey)
+        d.removePersistentDomain(forName: "ClipGaugeV084Check-\(ProcessInfo.processInfo.processIdentifier)")
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("cg-caskroom-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let brewYes = AppInfo.homebrewInstall(bundlePath: "/Applications/ClipGauge.app", caskrooms: [tmp.path])
+        let brewNoPath = !AppInfo.homebrewInstall(bundlePath: NSHomeDirectory() + "/Applications/ClipGauge.app", caskrooms: [tmp.path])
+        let brewNoCask = !AppInfo.homebrewInstall(bundlePath: "/Applications/ClipGauge.app", caskrooms: [tmp.path + "/missing"])
+        print("v084 check: upgrade-reset=\(reset) keeps-later-choice=\(kept) brew-detect=\(brewYes) not-brew-path=\(brewNoPath) not-brew-no-cask=\(brewNoCask)")
+        ok = ok && reset && kept && brewYes && brewNoPath && brewNoCask
+        return ok
+    }
+
     static func renderV083(_ m: RenamerModel, dir: URL) -> Bool {
         var ok = true
         UserDefaults.standard.set(true, forKey: kChatPanelKey)
