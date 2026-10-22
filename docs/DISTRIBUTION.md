@@ -79,8 +79,27 @@ Today's builds are **ad-hoc signed**. Downloaded copies show the Gatekeeper warn
 6. **Build location.** Build and sign on APFS (`/tmp` or ~). exFAT adds `._*` AppleDouble files that break the signature. `build.sh` already builds in /tmp and copies with `ditto --norsrc`.
 7. **Distribution.**
    - GitHub Release assets: `ClipGauge-0.x.dmg` plus a SHA-256.
-   - A Homebrew tap cask: `brew install --cask retrocombs/tap/clipgauge`.
+   - A Homebrew tap cask (live since v0.8.3): `brew install --cask stevencombs/tap/clipgauge`. See *Homebrew cask* below.
    - Sparkle auto-update is optional later. It needs an EdDSA key and an appcast.
+
+## Homebrew cask
+
+The cask is `Casks/clipgauge.rb` in [stevencombs/homebrew-tap](https://github.com/stevencombs/homebrew-tap), the same
+tap as GrokGauge. It installs `ClipGauge.app` into /Applications, depends on the `ffmpeg`, `ollama` and `whisper.cpp`
+formulae and macOS 14+, clears the quarantine flag on the app only (ad-hoc signed, not notarized), and never downloads
+models. `brew uninstall --zap` removes only ClipGauge's per-Mac files in ~/Library, never a project folder or models.
+
+**After each release** (once `ClipGauge-<version>.zip` and its `.sha256` are on the GitHub release), bump the cask:
+
+```sh
+app/ClipGauge/bump-cask.sh            # version from VERSION: downloads the zip, checks the .sha256, edits the cask, brew style + audit
+app/ClipGauge/bump-cask.sh 0.8.4 --push   # same, then commits "clipgauge 0.8.4" as retroCombs and pushes the tap
+```
+
+The script only runs when you invoke it. By hand it's two lines in the cask: `version "<new>"` and
+`sha256 "<shasum -a 256 of the zip>"`, then `brew style` / `brew audit --cask --tap stevencombs/tap` and a commit.
+The cask's `livecheck` follows the latest GitHub release, so `brew livecheck --cask stevencombs/tap/clipgauge` shows
+when it's behind.
 
 ## 5. Privacy statement (for README / About / release notes)
 

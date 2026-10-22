@@ -19,6 +19,18 @@
 
 ## Quick install
 
+**With [Homebrew](https://brew.sh)** (also installs ffmpeg, Ollama and whisper.cpp; no AI models are downloaded):
+
+```sh
+brew install --cask stevencombs/tap/clipgauge
+```
+
+Update with `brew upgrade --cask clipgauge`. Remove with `brew uninstall --cask clipgauge`; add `--zap` to also delete
+ClipGauge's own settings on this Mac. Your project folder, clips, transcripts and models are never touched.
+The cask lives in [stevencombs/homebrew-tap](https://github.com/stevencombs/homebrew-tap), next to GrokGauge's.
+
+**Or download the zip:**
+
 1. Download **`ClipGauge-<version>.zip`** from the [latest release](https://github.com/stevencombs/ClipGauge/releases/latest)
    and check it with the `.sha256` file next to it:
 
@@ -27,14 +39,16 @@
    ```
 
 2. Unzip it and drag **ClipGauge.app** into `/Applications`.
-3. Open it. **Setup** opens by itself: choose or create a project folder on any internal, external or network
-   drive, then **Install Missing…** installs Homebrew, Python, ffmpeg, Ollama and whisper.cpp and pulls the models,
-   asking before every step. See [SETUP.md](SETUP.md) for the full walkthrough.
 
-Already installed? Download the new zip and replace **ClipGauge.app** the same way; your project folder, models and
-settings stay where they are. There's no Homebrew cask for ClipGauge yet.
+Then open ClipGauge. **Setup** opens by itself: choose or create a project folder on any internal, external or network
+drive, then **Install Missing…** installs anything still missing (Homebrew, Python, ffmpeg, Ollama, whisper.cpp) and
+pulls the models, asking before every step. See [SETUP.md](SETUP.md) for the full walkthrough.
 
-ClipGauge is ad-hoc signed, not notarized by Apple, so macOS warns the first time you open it: right-click
+Already installed from the zip? Download the new zip and replace **ClipGauge.app** the same way; your project folder,
+models and settings stay where they are.
+
+ClipGauge is ad-hoc signed, not notarized by Apple. The Homebrew cask clears the download quarantine flag on
+**ClipGauge.app** only, so it opens normally. A zip download makes macOS warn the first time you open it: right-click
 **ClipGauge.app**, choose **Open**, then **Open** again (or *System Settings › Privacy & Security › Open Anyway*).
 
 > **Unofficial.** ClipGauge is a community project by [retroCombs](https://www.retrocombs.com).

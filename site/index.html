@@ -236,8 +236,13 @@
     <div class="grid install-grid">
       <div class="card">
         <span class="tag">Recommended</span>
-        <h3>GitHub Releases</h3>
-        <p>Download <code>ClipGauge-0.8.3.zip</code>, unzip it and drag <strong>ClipGauge.app</strong> into Applications. Each release has a <code>.sha256</code> file so you can check the download.</p>
+        <h3>Homebrew or GitHub Releases</h3>
+        <p>With <a class="more" href="https://brew.sh">Homebrew</a>, one command installs ClipGauge plus ffmpeg, Ollama and whisper.cpp. The AI models are still pulled in Setup, only after you approve.</p>
+        <div class="cmd cmd-sm">
+          <code>brew install --cask stevencombs/tap/clipgauge</code>
+          <button class="copy" type="button" data-copy="brew install --cask stevencombs/tap/clipgauge" aria-label="Copy Homebrew install command">Copy</button>
+        </div>
+        <p>Or download <code>ClipGauge-0.8.3.zip</code>, unzip it and drag <strong>ClipGauge.app</strong> into Applications. Each release has a <code>.sha256</code> file so you can check the download.</p>
         <div class="cmd cmd-sm">
           <code>shasum -a 256 -c ClipGauge-0.8.3.zip.sha256</code>
           <button class="copy" type="button" data-copy="shasum -a 256 -c ClipGauge-0.8.3.zip.sha256" aria-label="Copy checksum command">Copy</button>
@@ -283,7 +288,7 @@
     </details>
     <details open>
       <summary>Why does macOS warn me the first time?</summary>
-      <p>Releases aren't notarized by Apple yet, so a downloaded copy gets a Gatekeeper warning. Right-click <strong>ClipGauge.app</strong>, choose <strong>Open</strong>, then <strong>Open</strong> again, or use <strong>System Settings › Privacy &amp; Security › Open Anyway</strong>.</p>
+      <p>Releases aren't notarized by Apple yet, so a downloaded copy gets a Gatekeeper warning. (The Homebrew cask clears the download quarantine flag on ClipGauge.app only, so it opens normally.) Right-click <strong>ClipGauge.app</strong>, choose <strong>Open</strong>, then <strong>Open</strong> again, or use <strong>System Settings › Privacy &amp; Security › Open Anyway</strong>.</p>
     </details>
     <details>
       <summary>Do I need a particular drive?</summary>
