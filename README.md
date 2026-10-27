@@ -20,6 +20,10 @@
 > [!NOTE]
 > **Maintenance status:** ClipGauge is no longer under active development. Hosted AI assistants such as Grok Bot can now handle the same clip-naming and sorting work at very low cost, so new development has moved there. If you want a fully local, private solution that runs offline on your Mac, ClipGauge (v0.8.5) remains fully functional and available via Homebrew, but it may not receive further updates, fixes or support.
 
+### Forks welcome
+
+ClipGauge is released under the [MIT License](LICENSE), so you're free to fork, modify and build on it. If you do, please keep the copyright and license notice and credit the original project, for example: "Based on [ClipGauge](https://github.com/stevencombs/ClipGauge) by retroCombs."
+
 ## Quick install
 
 **With [Homebrew](https://brew.sh)** (also installs ffmpeg, Ollama and whisper.cpp; no AI models are downloaded):
