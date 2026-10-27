@@ -781,7 +781,7 @@ ClipGauge's Settings window (⌘,) now matches GrokGauge's, tab for tab:
   <img src="docs/retrocombs-logo.png" width="112" align="left" alt="retroCombs logo: a retro joystick on rainbow stripes" style="margin-right: 16px">
 </p>
 
-Created by **Steven Combs** (**retroCombs**) and built together with **Grok Bot**, Steven's AI assistant,
+Created by **retroCombs** and built together with **Grok Bot**, an AI assistant,
 which wrote the code, tests, and docs to his spec.
 
 - **Website:** [stevencombs.github.io/ClipGauge](https://stevencombs.github.io/ClipGauge/)
@@ -803,4 +803,4 @@ The same links are in ClipGauge under **Settings › About**.
 
 ## License
 
-[MIT](LICENSE) © 2026 Steven Combs (retroCombs)
+[MIT](LICENSE) © 2026 retroCombs

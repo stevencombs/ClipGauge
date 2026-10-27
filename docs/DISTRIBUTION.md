@@ -34,7 +34,7 @@
 
 ## 3. License
 
-- **Code:** MIT, matching GrokGauge (`Copyright (c) 2026 Steven Combs (retroCombs)`).
+- **Code:** MIT, matching GrokGauge (`Copyright (c) 2026 retroCombs`).
 - **Third parties.** Add a `THIRD_PARTY_NOTICES.md` that names each component, its license and where it comes from. None of them is redistributed by us.
 
 | Component | License | Note |
